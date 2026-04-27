@@ -1,11 +1,10 @@
 import { getLocation } from './geo.js';
 import { loadGroups } from './tle-loader.js';
-import { drawBasemap, drawGraticule, computeViewport, MAP } from './world-map.js';
-import { setupMapCanvas } from './map-canvas.js';
+import { setupMapOverlay } from './map-overlay.js';
 import { renderTrails } from './trails.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
 
-console.log('orbitarium v2 boot');
+console.log('orbitarium v3 boot');
 
 const fmt = (n, d = 3) => Number(n).toFixed(d);
 const fmtCoords = (obs) =>
@@ -29,8 +28,7 @@ const state = {
   lastFetchAt: 0,
 };
 
-// --- Boot: location + basemap + TLEs in parallel where possible ---
-
+// --- Boot: location first (the map needs an initial center) ---
 state.observer = await getLocation();
 
 const locNameEl = document.getElementById('locName');
@@ -38,27 +36,11 @@ const coordsEl = document.getElementById('coords');
 if (locNameEl) locNameEl.textContent = state.observer.name;
 if (coordsEl) coordsEl.textContent = fmtCoords(state.observer);
 
-const svg = document.getElementById('sky');
-const canvasEl = document.getElementById('sky-canvas');
+// --- Set up the Leaflet map + canvas overlay ---
+const canvasEl = document.getElementById('sat-overlay');
+const mapOverlay = setupMapOverlay('map', canvasEl, state.observer);
 
-drawGraticule(svg);
-drawBasemap(svg).catch((e) => {
-  console.error('basemap load failed', e);
-  toast('World map failed to load');
-});
-
-const mapCanvas = setupMapCanvas(canvasEl);
-window.addEventListener('resize', () => mapCanvas.resize());
-
-// Crop the map to a regional window centered on the observer.
-function applyViewport() {
-  const v = computeViewport(state.observer);
-  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
-  mapCanvas.setViewport(v);
-}
-applyViewport();
-
-// --- Status-bar handles ---
+// --- Status bar handles ---
 const loadDot = document.getElementById('loadDot');
 const tleCountEl = document.getElementById('tleCount');
 const totalCountEl = document.getElementById('totalCount');
@@ -87,7 +69,6 @@ const worker = new Worker(new URL('./worker.js', import.meta.url));
 let latestFrame = null;
 let prevFrame = null;
 let selectedId = null;
-let stationIdSet = new Set();
 
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtClock(d) {
@@ -114,43 +95,28 @@ function onWorkerPositions(frame) {
       : '—';
   }
 
-  // Trails (refreshed every ~15s by the worker; we re-render on each frame
-  // since trails come embedded in the positions payload).
-  renderTrails(svg, frame.trails || {}, stationIdSet, selectedId);
-
-  // List + detail panel.
+  renderTrails(mapOverlay.map, frame.trails || {}, selectedId);
   renderList(frame.visibles, selectedId);
   renderDetail(frame.visibles.find((v) => v.id === selectedId) || null);
 }
 
 worker.onmessage = (e) => {
   const msg = e.data;
-  if (msg.type === 'ready') {
-    // ready info isn't surfaced in the UI; tleCount already shows the post-init count.
-  } else if (msg.type === 'positions') {
-    onWorkerPositions(msg);
-  }
+  if (msg.type === 'positions') onWorkerPositions(msg);
 };
 
 if (state.tles.length > 0 && state.observer) {
-  // Track station ids on the main thread for trail styling.
-  for (const tle of state.tles) if (tle.isStation) stationIdSet.add(tle.id);
-
   worker.postMessage({ type: 'init', tles: state.tles, observer: state.observer });
   worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: state.sunlitOnly });
   setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
 }
 
 // --- 30 fps interpolated render ---
-// Lerp lon (with dateline wrap) and lat. Linear extrapolation past `latest.timeMs`,
-// clamped to 2 worker intervals so a stalled worker doesn't fly satellites off-screen.
-
 function lerpLon(prev, latest, t) {
   let d = latest - prev;
   if (d > 180) d -= 360;
   else if (d < -180) d += 360;
   let r = latest + d * t;
-  // Normalize to [-180, 180).
   r = ((r + 540) % 360) - 180;
   return r;
 }
@@ -198,34 +164,32 @@ function renderFrame() {
       allPos = latestFrame.allPositions;
       vis = latestFrame.visibles;
     }
-    mapCanvas.render(allPos, vis, selectedId, state.observer);
+    mapOverlay.render(allPos, vis, selectedId);
   }
   requestAnimationFrame(renderFrame);
 }
 requestAnimationFrame(renderFrame);
 
-// Tell the worker which sat to draw a trail for. Null = no trail.
+// --- Selection ---
 function setSelection(id) {
   selectedId = id;
   worker.postMessage({ type: 'select', id });
   if (latestFrame) {
     renderList(latestFrame.visibles, selectedId);
     renderDetail(latestFrame.visibles.find((v) => v.id === selectedId) || null);
-    renderTrails(svg, latestFrame.trails || {}, stationIdSet, selectedId);
+    renderTrails(mapOverlay.map, latestFrame.trails || {}, selectedId);
   }
 }
 
-// --- Click selection on canvas ---
-canvasEl.addEventListener('click', (e) => {
-  const rect = canvasEl.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const hit = mapCanvas.hitTest(x, y);
-  setSelection(hit !== null && hit !== selectedId ? hit : null);
+mapOverlay.onClick((id) => {
+  setSelection(id !== null && id !== selectedId ? id : null);
+});
+
+bindUi((id) => {
+  setSelection(selectedId === id ? null : id);
 });
 
 // --- Controls ---
-
 const groupChipsEl = document.getElementById('groupChips');
 const sunlitToggleEl = document.getElementById('sunlitToggle');
 const redModeEl = document.getElementById('redMode');
@@ -243,8 +207,6 @@ async function reloadTles() {
     const { tles, fetchedAt } = await loadGroups(enabled, { onWarn: toast });
     state.tles = tles;
     state.lastFetchAt = fetchedAt;
-    stationIdSet = new Set();
-    for (const tle of tles) if (tle.isStation) stationIdSet.add(tle.id);
     if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
     if (loadDot) loadDot.className = 'dot live';
     worker.postMessage({ type: 'init', tles, observer: state.observer });
@@ -296,7 +258,7 @@ if (locBtnEl) {
     state.observer = await getLocation();
     if (locNameEl) locNameEl.textContent = state.observer.name;
     if (coordsEl) coordsEl.textContent = fmtCoords(state.observer);
-    applyViewport();
+    mapOverlay.setObserver(state.observer);
     worker.postMessage({
       type: 'observer',
       lat: state.observer.lat,
@@ -312,11 +274,3 @@ setInterval(() => {
   if (!state.lastFetchAt) return;
   if (Date.now() - state.lastFetchAt > FRESH_WINDOW_MS) reloadTles();
 }, 60_000);
-
-// Wire list-row clicks to selection.
-bindUi((id) => {
-  setSelection(selectedId === id ? null : id);
-});
-
-// Bind to MAP geometry so unused-import warning never bites in dev.
-void MAP;

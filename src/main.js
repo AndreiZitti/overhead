@@ -167,6 +167,8 @@ function lerpAngle(prev, latest, t) {
   return result;
 }
 
+const HALF_PI = Math.PI / 2;
+
 function interpolateItems(prevItems, latestItems, t) {
   if (t <= 0) return latestItems;
   const prevById = new Map();
@@ -174,10 +176,12 @@ function interpolateItems(prevItems, latestItems, t) {
   return latestItems.map((latest) => {
     const prev = prevById.get(latest.id);
     if (!prev) return latest;
+    const extrapEl = latest.el + (latest.el - prev.el) * t;
+    const clampedEl = extrapEl < 0 ? 0 : extrapEl > HALF_PI ? HALF_PI : extrapEl;
     return {
       ...latest,
       az: lerpAngle(prev.az, latest.az, t),
-      el: latest.el + (latest.el - prev.el) * t,
+      el: clampedEl,
     };
   });
 }

@@ -14,12 +14,14 @@ let stationIds = new Set();
 let observerGd = null;     // {longitude, latitude, height} radians/km
 let config = { minElev: 5, sunlitOnly: true };
 
-// Trails are recomputed at TRAIL_INTERVAL_MS, cached, posted with the next tick.
+// Trails are computed only for the currently-selected satellite — flightradar
+// style. Recomputed every TRAIL_INTERVAL_MS (cheap: one sat × 61 propagations).
 const TRAIL_INTERVAL_MS = 15_000;
 const TRAIL_HALF_WINDOW_MIN = 30; // minutes before/after now
-const TRAIL_STEP_MIN = 1;          // 1 sample/min → 61 points per trail
+const TRAIL_STEP_MIN = 1;          // 1 sample/min → 61 points
+let selectedTrailId = null;
 let lastTrailAt = 0;
-let trailCache = {};               // {[id]: [[lon, lat], ...]}
+let trailCache = {};               // {[id]: [[lon, lat], ...]} — at most one entry
 
 // --- Astronomy helpers (inlined; can't import from astro.js in classic worker) ---
 
@@ -144,15 +146,18 @@ function computeTrail(satrec, nowMs) {
   return points;
 }
 
-function refreshTrails(nowMs, trailEligibleIds) {
-  const next = {};
-  for (const id of trailEligibleIds) {
-    // Find the satrec by id (linear; trail-eligible set is tiny).
-    const sat = satrecs.find((s) => s.id === id);
-    if (!sat) continue;
-    next[id] = computeTrail(sat.satrec, nowMs);
+function refreshSelectedTrail(nowMs) {
+  if (selectedTrailId == null) {
+    trailCache = {};
+    lastTrailAt = nowMs;
+    return;
   }
-  trailCache = next;
+  const sat = satrecs.find((s) => s.id === selectedTrailId);
+  if (!sat) {
+    trailCache = {};
+  } else {
+    trailCache = { [selectedTrailId]: computeTrail(sat.satrec, nowMs) };
+  }
   lastTrailAt = nowMs;
 }
 
@@ -240,11 +245,9 @@ function handleTick({ timeMs }) {
     return a.mag - b.mag;
   });
 
-  // Refresh trails periodically. Eligible = stations OR naked-eye visibles.
+  // Refresh selected trail every TRAIL_INTERVAL_MS (or immediately on first tick).
   if (timeMs - lastTrailAt > TRAIL_INTERVAL_MS || lastTrailAt === 0) {
-    const trailIds = new Set(stationIds);
-    for (const v of visibles) if (v.tier === 'naked') trailIds.add(v.id);
-    refreshTrails(timeMs, trailIds);
+    refreshSelectedTrail(timeMs);
   }
 
   self.postMessage({
@@ -261,12 +264,19 @@ function handleTick({ timeMs }) {
   });
 }
 
+function handleSelect({ id }) {
+  selectedTrailId = id;
+  // Force trail refresh on next tick (the selection may have changed mid-window).
+  lastTrailAt = 0;
+}
+
 self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
     case 'init':     return handleInit(msg);
     case 'observer': return handleObserver(msg);
     case 'config':   return handleConfig(msg);
+    case 'select':   return handleSelect(msg);
     case 'tick':     return handleTick(msg);
   }
 };

@@ -1,6 +1,6 @@
 import { getLocation } from './geo.js';
 import { loadGroups } from './tle-loader.js';
-import { drawBasemap, drawGraticule, MAP } from './world-map.js';
+import { drawBasemap, drawGraticule, computeViewport, MAP } from './world-map.js';
 import { setupMapCanvas } from './map-canvas.js';
 import { renderTrails } from './trails.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
@@ -49,6 +49,14 @@ drawBasemap(svg).catch((e) => {
 
 const mapCanvas = setupMapCanvas(canvasEl);
 window.addEventListener('resize', () => mapCanvas.resize());
+
+// Crop the map to a regional window centered on the observer.
+function applyViewport() {
+  const v = computeViewport(state.observer);
+  svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+  mapCanvas.setViewport(v);
+}
+applyViewport();
 
 // --- Status-bar handles ---
 const loadDot = document.getElementById('loadDot');
@@ -196,22 +204,24 @@ function renderFrame() {
 }
 requestAnimationFrame(renderFrame);
 
+// Tell the worker which sat to draw a trail for. Null = no trail.
+function setSelection(id) {
+  selectedId = id;
+  worker.postMessage({ type: 'select', id });
+  if (latestFrame) {
+    renderList(latestFrame.visibles, selectedId);
+    renderDetail(latestFrame.visibles.find((v) => v.id === selectedId) || null);
+    renderTrails(svg, latestFrame.trails || {}, stationIdSet, selectedId);
+  }
+}
+
 // --- Click selection on canvas ---
 canvasEl.addEventListener('click', (e) => {
   const rect = canvasEl.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
   const hit = mapCanvas.hitTest(x, y);
-  if (hit !== null) {
-    selectedId = (selectedId === hit) ? null : hit;
-  } else {
-    selectedId = null;
-  }
-  if (latestFrame) {
-    renderList(latestFrame.visibles, selectedId);
-    renderDetail(latestFrame.visibles.find((v) => v.id === selectedId) || null);
-    renderTrails(svg, latestFrame.trails || {}, stationIdSet, selectedId);
-  }
+  setSelection(hit !== null && hit !== selectedId ? hit : null);
 });
 
 // --- Controls ---
@@ -286,6 +296,7 @@ if (locBtnEl) {
     state.observer = await getLocation();
     if (locNameEl) locNameEl.textContent = state.observer.name;
     if (coordsEl) coordsEl.textContent = fmtCoords(state.observer);
+    applyViewport();
     worker.postMessage({
       type: 'observer',
       lat: state.observer.lat,
@@ -304,12 +315,7 @@ setInterval(() => {
 
 // Wire list-row clicks to selection.
 bindUi((id) => {
-  selectedId = (selectedId === id) ? null : id;
-  if (latestFrame) {
-    renderList(latestFrame.visibles, selectedId);
-    renderDetail(latestFrame.visibles.find((v) => v.id === selectedId) || null);
-    renderTrails(svg, latestFrame.trails || {}, stationIdSet, selectedId);
-  }
+  setSelection(selectedId === id ? null : id);
 });
 
 // Bind to MAP geometry so unused-import warning never bites in dev.

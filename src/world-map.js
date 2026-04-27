@@ -5,6 +5,28 @@
 
 export const MAP = { w: 720, h: 360 };
 
+/**
+ * Compute a regional SVG viewBox centered on the observer.
+ * Returns {x, y, w, h} in world pixels (the same coordinate system as project()).
+ * The viewport spans ±spanLonDeg/2 longitude and ±spanLatDeg/2 latitude,
+ * clamped to map edges. Default ±60° lon × ±30° lat = 2:1 aspect, matching .sky-card.
+ *
+ * Dateline wrap is NOT handled — observers near ±180° longitude will see
+ * an off-center, clamped view. Acceptable for v2.
+ */
+export function computeViewport(observer, spanLonDeg = 120, spanLatDeg = 60) {
+  const w = (spanLonDeg / 360) * MAP.w;
+  const h = (spanLatDeg / 180) * MAP.h;
+  const [cx, cy] = project(observer.lon, observer.lat);
+  let x = cx - w / 2;
+  let y = cy - h / 2;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x + w > MAP.w) x = MAP.w - w;
+  if (y + h > MAP.h) y = MAP.h - h;
+  return { x, y, w, h };
+}
+
 /** Equirectangular: longitude/latitude (degrees) -> SVG/canvas pixel coords. */
 export function project(lonDeg, latDeg) {
   const x = ((lonDeg + 180) / 360) * MAP.w;

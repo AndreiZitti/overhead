@@ -8,19 +8,20 @@
 import { project, MAP } from './world-map.js';
 
 const STYLE = {
-  background: { fill: 'rgba(106, 144, 200, 0.18)', radius: 0.9, blur: 0 }, // any sat
-  shadow:     { fill: 'rgba(58, 69, 101, 0.45)',   radius: 1.2, blur: 0 },
-  daylight:   { fill: 'rgba(122, 117, 103, 0.55)', radius: 1.4, blur: 0 },
-  telescope:  { fill: 'rgba(106, 144, 200, 0.75)', radius: 1.4, blur: 0 },
-  binocular:  { fill: 'rgba(201, 197, 176, 0.95)', radius: 1.8, blur: 0 },
-  naked:      { fill: '#f4b860', radius: 2.4, blur: 5 },
-  station:    { fill: '#e87bb1', radius: 4,   blur: 8 },
-  selected:   { fill: '#7adba0', radius: 5,   blur: 10 },
+  background: { fill: 'rgba(120, 140, 180, 0.10)', radius: 0.7, blur: 0 }, // distant texture only
+  shadow:     { fill: 'rgba(70, 85, 120, 0.60)',   radius: 1.5, blur: 0 },
+  daylight:   { fill: 'rgba(140, 130, 110, 0.75)', radius: 1.8, blur: 0 },
+  telescope:  { fill: 'rgba(140, 175, 220, 0.85)', radius: 1.8, blur: 0 },
+  binocular:  { fill: 'rgba(220, 215, 195, 1.0)',  radius: 2.2, blur: 0 },
+  naked:      { fill: '#ffd078', radius: 3,   blur: 8 },
+  station:    { fill: '#ff9bd0', radius: 4.5, blur: 12 },
+  selected:   { fill: '#7adba0', radius: 5.5, blur: 14 },
 };
 
 export function setupMapCanvas(canvasEl) {
   const ctx = canvasEl.getContext('2d');
-  let cssW = 0, cssH = 0, scaleX = 1, scaleY = 1;
+  let cssW = 0, cssH = 0;
+  let viewport = { x: 0, y: 0, w: MAP.w, h: MAP.h }; // updated via setViewport()
   let lastDots = []; // {id, x, y, r} in CSS pixels — used by hitTest
 
   /**
@@ -35,14 +36,17 @@ export function setupMapCanvas(canvasEl) {
     canvasEl.width = Math.round(cssW * dpr);
     canvasEl.height = Math.round(cssH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    scaleX = cssW / MAP.w;
-    scaleY = cssH / MAP.h;
   }
   resize();
 
+  function setViewport(v) { viewport = v; }
+
   function toCss(lon, lat) {
     const [px, py] = project(lon, lat);
-    return [px * scaleX, py * scaleY];
+    return [
+      ((px - viewport.x) / viewport.w) * cssW,
+      ((py - viewport.y) / viewport.h) * cssH,
+    ];
   }
 
   function render(allPositions, visibles, selectedId, observer) {
@@ -56,17 +60,16 @@ export function setupMapCanvas(canvasEl) {
 
     ctx.clearRect(0, 0, cssW, cssH);
 
-    // 1. Background dots — every satellite, very faint.
+    // 1. Background dots — every satellite, almost imperceptible. Forms a
+    // subtle "satellite density" texture without competing with the basemap.
+    // Drawn as 1px rects (cheap) instead of arcs.
     const bg = STYLE.background;
     ctx.fillStyle = bg.fill;
     ctx.shadowBlur = 0;
-    ctx.beginPath();
     for (const p of allPositions) {
       const [x, y] = toCss(p.lon, p.lat);
-      ctx.moveTo(x + bg.radius, y);
-      ctx.arc(x, y, bg.radius, 0, Math.PI * 2);
+      ctx.fillRect(x - 0.5, y - 0.5, 1, 1);
     }
-    ctx.fill();
 
     // 2. Visible satellites colored by tier (on top of background).
     // Bucket by category (selection > station > tier).
@@ -153,5 +156,5 @@ export function setupMapCanvas(canvasEl) {
     return bestId;
   }
 
-  return { render, hitTest, resize };
+  return { render, hitTest, resize, setViewport };
 }

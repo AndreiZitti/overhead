@@ -146,18 +146,22 @@ function computeTrail(satrec, nowMs) {
   return points;
 }
 
-function refreshSelectedTrail(nowMs) {
-  if (selectedTrailId == null) {
-    trailCache = {};
-    lastTrailAt = nowMs;
-    return;
+function refreshTrails(nowMs, eligibleIds) {
+  const next = {};
+  // Index satrecs by id for O(1) lookup; eligible set is small (~10-50).
+  const byId = new Map();
+  for (const s of satrecs) byId.set(s.id, s);
+  for (const id of eligibleIds) {
+    const sat = byId.get(id);
+    if (!sat) continue;
+    next[id] = computeTrail(sat.satrec, nowMs);
   }
-  const sat = satrecs.find((s) => s.id === selectedTrailId);
-  if (!sat) {
-    trailCache = {};
-  } else {
-    trailCache = { [selectedTrailId]: computeTrail(sat.satrec, nowMs) };
+  // Always include selected trail even if not in the eligible set.
+  if (selectedTrailId != null && !next[selectedTrailId]) {
+    const sat = byId.get(selectedTrailId);
+    if (sat) next[selectedTrailId] = computeTrail(sat.satrec, nowMs);
   }
+  trailCache = next;
   lastTrailAt = nowMs;
 }
 
@@ -245,9 +249,12 @@ function handleTick({ timeMs }) {
     return a.mag - b.mag;
   });
 
-  // Refresh selected trail every TRAIL_INTERVAL_MS (or immediately on first tick).
+  // Trails: every station + every naked-eye visible. Selected always included.
+  // At city zoom only a handful are in viewport, so the visual stays clean.
   if (timeMs - lastTrailAt > TRAIL_INTERVAL_MS || lastTrailAt === 0) {
-    refreshSelectedTrail(timeMs);
+    const eligible = new Set(stationIds);
+    for (const v of visibles) if (v.tier === 'naked') eligible.add(v.id);
+    refreshTrails(timeMs, eligible);
   }
 
   self.postMessage({

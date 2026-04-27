@@ -69,6 +69,7 @@ const worker = new Worker(new URL('./worker.js', import.meta.url));
 let latestFrame = null;
 let prevFrame = null;
 let selectedId = null;
+let stationIdSet = new Set();
 
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtClock(d) {
@@ -95,7 +96,7 @@ function onWorkerPositions(frame) {
       : '—';
   }
 
-  renderTrails(mapOverlay.map, frame.trails || {}, selectedId);
+  renderTrails(mapOverlay.map, frame.trails || {}, stationIdSet, selectedId);
   renderList(frame.visibles, selectedId);
   renderDetail(frame.visibles.find((v) => v.id === selectedId) || null);
 }
@@ -106,6 +107,7 @@ worker.onmessage = (e) => {
 };
 
 if (state.tles.length > 0 && state.observer) {
+  for (const tle of state.tles) if (tle.isStation) stationIdSet.add(tle.id);
   worker.postMessage({ type: 'init', tles: state.tles, observer: state.observer });
   worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: state.sunlitOnly });
   setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
@@ -209,6 +211,8 @@ async function reloadTles() {
     state.lastFetchAt = fetchedAt;
     if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
     if (loadDot) loadDot.className = 'dot live';
+    stationIdSet = new Set();
+    for (const tle of tles) if (tle.isStation) stationIdSet.add(tle.id);
     worker.postMessage({ type: 'init', tles, observer: state.observer });
     worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: state.sunlitOnly });
   } catch (err) {

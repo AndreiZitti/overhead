@@ -144,7 +144,12 @@ function handleObserver({ lat, lon, alt }) {
 }
 
 function handleConfig(payload) {
-  if (typeof payload.minElev === 'number') config.minElev = payload.minElev;
+  if (typeof payload.minElev === 'number' && payload.minElev !== config.minElev) {
+    config.minElev = payload.minElev;
+    // Cutoff changed — invalidate candidate set so the next tick refreshes it.
+    candidateIds = new Set();
+    lastCoarseAt = 0;
+  }
   if (typeof payload.sunlitOnly === 'boolean') config.sunlitOnly = payload.sunlitOnly;
 }
 

@@ -1,0 +1,351 @@
+  :root{
+    --bg-0:#05060c;
+    --bg-1:#0a0d18;
+    --bg-2:#10142a;
+    --ink-0:#e8e4d6;
+    --ink-1:#a9a597;
+    --ink-2:#5e5b50;
+    --line:#1f2440;
+    --line-soft:#15192f;
+    --amber:#f4b860;       /* visible-now satellites */
+    --amber-glow:#ffcd84;
+    --steel:#6a90c8;       /* not currently sunlit / dim */
+    --magenta:#e87bb1;     /* ISS / stations */
+    --green:#7adba0;       /* selected */
+    --red:#ff3a2a;         /* night-vision */
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(ellipse at 20% -10%, #1a1f44 0%, transparent 50%),
+      radial-gradient(ellipse at 110% 110%, #2a1538 0%, transparent 55%),
+      var(--bg-0);
+    color:var(--ink-0);
+    font-family:'JetBrains Mono', ui-monospace, monospace;
+    font-size:13px;
+    line-height:1.45;
+    overflow-x:hidden;
+    min-height:100dvh;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  /* Subtle starfield */
+  body::before{
+    content:'';
+    position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, #fff 0%, transparent 100%),
+      radial-gradient(1px 1px at 73% 42%, #fff 0%, transparent 100%),
+      radial-gradient(1px 1px at 28% 78%, #fff 0%, transparent 100%),
+      radial-gradient(1px 1px at 88% 88%, #ddd 0%, transparent 100%),
+      radial-gradient(1px 1px at 47% 22%, #fff 0%, transparent 100%),
+      radial-gradient(1px 1px at 92% 14%, #ccc 0%, transparent 100%),
+      radial-gradient(1px 1px at 8% 62%, #fff 0%, transparent 100%),
+      radial-gradient(1px 1px at 62% 88%, #eee 0%, transparent 100%),
+      radial-gradient(1px 1px at 38% 50%, #fff 0%, transparent 100%);
+    opacity:.45;
+  }
+
+  .wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:24px 18px 60px;}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px;flex-wrap:wrap}
+  .brand{display:flex;flex-direction:column;gap:4px}
+  .brand h1{
+    font-family:'Fraunces',serif;
+    font-weight:300;
+    font-size:clamp(34px,7vw,52px);
+    letter-spacing:-.02em;
+    line-height:1;
+    font-variation-settings:"opsz" 144,"SOFT" 30;
+  }
+  .brand h1 .star{display:inline-block;transform:translateY(-.05em);font-size:.7em;color:var(--amber);margin-right:.18em}
+  .brand .tag{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-weight:300;
+    color:var(--ink-1);
+    font-size:14px;
+    letter-spacing:.01em;
+  }
+  .meta{
+    text-align:right;
+    font-size:11.5px;
+    color:var(--ink-1);
+    line-height:1.7;
+  }
+  .meta .clock{
+    font-size:18px;color:var(--ink-0);font-weight:500;
+    font-feature-settings:"tnum" 1;
+    letter-spacing:.02em;
+  }
+  .meta .loc{color:var(--ink-1)}
+  .meta .loc strong{color:var(--ink-0);font-weight:500}
+
+  /* Status bar */
+  .status{
+    border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    padding:10px 0;
+    display:flex;flex-wrap:wrap;gap:18px 24px;
+    margin-bottom:20px;
+    font-size:11px;
+    text-transform:uppercase;letter-spacing:.12em;
+    color:var(--ink-1);
+  }
+  .status .item{display:flex;align-items:center;gap:8px}
+  .status .item strong{color:var(--ink-0);font-weight:500}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-2);box-shadow:0 0 0 1px var(--bg-0)}
+  .dot.live{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .dot.warn{background:var(--amber)}
+  .dot.err{background:var(--red)}
+
+  /* Main grid */
+  .grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 320px;
+    gap:24px;
+    align-items:start;
+  }
+  @media (max-width:780px){
+    .grid{grid-template-columns:1fr}
+  }
+
+  /* Sky plot */
+  .sky-card{
+    aspect-ratio:1/1;
+    width:100%;
+    background:
+      radial-gradient(circle at 50% 50%, #060914 0%, #03050b 70%, #000 100%);
+    border:1px solid var(--line);
+    border-radius:8px;
+    position:relative;
+    overflow:hidden;
+  }
+  .sky-card svg{width:100%;height:100%;display:block}
+  .sky-grid{stroke:var(--line);stroke-width:1;fill:none}
+  .sky-grid-soft{stroke:var(--line-soft);stroke-width:1;fill:none}
+  .horizon{stroke:var(--ink-2);stroke-width:1.2;fill:none}
+  .axis-label{
+    fill:var(--ink-1);
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-size:14px;
+    text-anchor:middle;
+    dominant-baseline:middle;
+  }
+  .ring-label{
+    fill:var(--ink-2);
+    font-size:9px;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .sat{cursor:pointer;transition:r .3s ease}
+  .sat-bright circle{fill:var(--amber);filter:drop-shadow(0 0 4px var(--amber-glow))}
+  .sat-mid circle{fill:#c9c5b0;opacity:.85}
+  .sat-faint circle{fill:var(--steel);opacity:.55}
+  .sat-day circle{fill:#7a7567;opacity:.45}
+  .sat-dim circle{fill:#3a4565;opacity:.35}
+  .sat-station circle{fill:var(--magenta);filter:drop-shadow(0 0 6px var(--magenta))}
+  .sat-selected circle{fill:var(--green);filter:drop-shadow(0 0 8px var(--green))}
+  .sat-label{
+    fill:var(--ink-0);
+    font-size:9px;
+    font-family:'JetBrains Mono',monospace;
+    pointer-events:none;
+    text-anchor:start;
+    paint-order:stroke;
+    stroke:var(--bg-0);
+    stroke-width:2px;
+  }
+  .sun-marker{fill:#ffd166;filter:drop-shadow(0 0 6px #ffd166)}
+  .moon-marker{fill:#dde6f0;filter:drop-shadow(0 0 5px #dde6f0)}
+
+  /* List panel */
+  .panel{
+    background:linear-gradient(180deg, var(--bg-1), var(--bg-0));
+    border:1px solid var(--line);
+    border-radius:8px;
+    overflow:hidden;
+  }
+  .panel h2{
+    font-family:'Fraunces',serif;
+    font-weight:400;
+    font-style:italic;
+    font-size:13px;
+    letter-spacing:.08em;
+    color:var(--ink-1);
+    padding:14px 16px 10px;
+    border-bottom:1px solid var(--line);
+    text-transform:uppercase;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .panel h2 .count{color:var(--amber);font-style:normal;font-family:'JetBrains Mono',monospace}
+  .sat-list{max-height:640px;overflow-y:auto}
+  .sat-list::-webkit-scrollbar{width:6px}
+  .sat-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .sat-row{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:8px;
+    padding:10px 16px;
+    border-bottom:1px solid var(--line-soft);
+    cursor:pointer;
+    transition:background .15s;
+  }
+  .sat-row:hover,.sat-row.selected{background:var(--bg-2)}
+  .sat-row .name{
+    font-size:12px;
+    font-weight:500;
+    color:var(--ink-0);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    display:flex;align-items:center;gap:6px;
+  }
+  .sat-row .name::before{
+    content:'';
+    width:6px;height:6px;border-radius:50%;background:var(--steel);flex-shrink:0;
+  }
+  .sat-row.bright .name::before{background:var(--amber);box-shadow:0 0 4px var(--amber)}
+  .sat-row.mid .name::before{background:#c9c5b0}
+  .sat-row.faint .name::before{background:var(--steel);opacity:.7}
+  .sat-row.day .name::before{background:#7a7567}
+  .sat-row.shadow .name::before{background:#3a4565;opacity:.5}
+  .sat-row.station .name::before{background:var(--magenta);box-shadow:0 0 4px var(--magenta)}
+  .sat-row .coords{
+    grid-column:1/-1;
+    font-size:10px;
+    color:var(--ink-1);
+    display:flex;gap:12px;
+    font-feature-settings:"tnum" 1;
+  }
+  .sat-row .el-badge{
+    font-size:11px;
+    color:var(--ink-0);
+    font-feature-settings:"tnum" 1;
+    align-self:center;
+  }
+  .empty{padding:24px 16px;color:var(--ink-2);font-size:11px;text-align:center;line-height:1.6}
+
+  /* Controls */
+  .controls{
+    margin-top:24px;
+    display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;
+    border-top:1px solid var(--line);
+    padding-top:18px;
+  }
+  .ctrl-group{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--ink-1);
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    padding:7px 12px;
+    border-radius:999px;
+    cursor:pointer;
+    transition:all .15s;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    user-select:none;
+  }
+  .chip:hover{border-color:var(--ink-1);color:var(--ink-0)}
+  .chip.active{
+    background:var(--ink-0);
+    color:var(--bg-0);
+    border-color:var(--ink-0);
+    font-weight:600;
+  }
+  .chip.warn{border-color:#664020;color:var(--amber)}
+  .chip.warn.active{background:var(--amber);color:var(--bg-0);border-color:var(--amber)}
+
+  .slider-wrap{
+    display:flex;align-items:center;gap:10px;
+    font-size:11px;color:var(--ink-1);text-transform:uppercase;letter-spacing:.08em;
+  }
+  .slider-wrap input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:90px;height:2px;background:var(--line);
+    outline:none;
+  }
+  .slider-wrap input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:14px;height:14px;
+    background:var(--amber);border-radius:50%;cursor:pointer;
+  }
+  .slider-wrap input[type=range]::-moz-range-thumb{
+    width:14px;height:14px;background:var(--amber);border-radius:50%;cursor:pointer;border:0;
+  }
+  .slider-val{color:var(--ink-0);font-feature-settings:"tnum" 1;min-width:30px}
+
+  .legend{
+    margin-top:14px;font-size:10px;color:var(--ink-2);
+    text-transform:uppercase;letter-spacing:.1em;
+    display:flex;flex-wrap:wrap;gap:14px;
+  }
+  .legend span{display:flex;align-items:center;gap:6px}
+  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  /* Selected satellite detail */
+  .detail{
+    margin-top:14px;
+    padding:14px 16px;
+    background:linear-gradient(180deg, rgba(122,219,160,.06), transparent);
+    border:1px solid rgba(122,219,160,.25);
+    border-radius:6px;
+    display:none;
+  }
+  .detail.show{display:block}
+  .detail h3{
+    font-family:'Fraunces',serif;
+    font-weight:400;
+    font-size:18px;
+    letter-spacing:-.01em;
+    margin-bottom:8px;
+  }
+  .detail .meta-grid{
+    display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px;
+    font-size:11px;color:var(--ink-1);
+    font-feature-settings:"tnum" 1;
+  }
+  .detail .meta-grid b{color:var(--ink-0);font-weight:500;display:block}
+
+  /* Footer note */
+  footer{margin-top:36px;font-size:10px;color:var(--ink-2);text-align:center;line-height:1.7}
+  footer a{color:var(--ink-1);text-decoration:none;border-bottom:1px dotted var(--ink-2)}
+
+  /* NIGHT-VISION RED MODE */
+  body.night{
+    --bg-0:#0a0000;
+    --bg-1:#140000;
+    --bg-2:#1f0000;
+    --ink-0:#ff5544;
+    --ink-1:#aa2818;
+    --ink-2:#5a1410;
+    --line:#3a0a08;
+    --line-soft:#220606;
+    --amber:#ff5544;
+    --amber-glow:#ff7a66;
+    --steel:#7a1a14;
+    --magenta:#ff8060;
+    --green:#ff5544;
+  }
+  body.night::before{filter:hue-rotate(120deg) saturate(.3) brightness(.5)}
+  body.night .sky-card{background:radial-gradient(circle at 50% 50%, #160000 0%, #0a0000 70%, #000 100%)}
+
+  /* Toast */
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--bg-2);border:1px solid var(--line);
+    color:var(--ink-0);
+    padding:10px 16px;border-radius:6px;font-size:12px;
+    z-index:100;max-width:90vw;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);
+    opacity:0;transition:opacity .3s;pointer-events:none;
+  }
+  .toast.show{opacity:1}
+
+/* Canvas overlay sits on top of the SVG layer */
+.sky-card svg, .sky-card canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.sky-card canvas { pointer-events: auto; }

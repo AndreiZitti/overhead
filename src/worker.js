@@ -136,7 +136,15 @@ function handleConfig(payload) {
 }
 
 function handleTick({ timeMs }) {
-  if (!observerGd || satrecs.length === 0) return;
+  if (!observerGd || satrecs.length === 0) {
+    self.postMessage({
+      type: 'positions',
+      timeMs: timeMs,
+      items: [],
+      counts: { visible: 0, naked: 0, binocular: 0, telescope: 0, daylight: 0, shadow: 0 }
+    });
+    return;
+  }
 
   const now = new Date(timeMs);
   const gmst = self.satellite.gstime(now);

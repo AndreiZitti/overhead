@@ -15,19 +15,19 @@
       <header>
         <div class="brand">
           <h1><span class="star">✦</span>Orbitarium</h1>
-          <div class="tag">live satellite sky over your head</div>
+          <div class="tag">live satellite tracker — every orbit, in real time</div>
         </div>
         <div class="meta">
           <div class="clock" id="clock">--:--:--</div>
           <div class="loc"><strong id="locName">Locating…</strong></div>
           <div class="loc" id="coords">--.----° • --.----°</div>
-          <div class="loc" id="solar">sun: --°</div>
         </div>
       </header>
 
       <div class="status">
         <div class="item"><span class="dot" id="loadDot"></span><span>tle <strong id="tleCount">—</strong></span></div>
-        <div class="item"><span class="dot live"></span><span>above horizon <strong id="visCount">—</strong></span></div>
+        <div class="item"><span class="dot live"></span><span>tracking <strong id="totalCount">—</strong></span></div>
+        <div class="item"><span>above you <strong id="visCount">—</strong></span></div>
         <div class="item"><span>sunlit <strong id="sunlitCount">—</strong></span></div>
         <div class="item"><span>nearest <strong id="nearest">—</strong></span></div>
       </div>
@@ -35,17 +35,16 @@
       <div class="grid">
 
         <div class="sky-card">
-          <svg id="sky" viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet">
-            <!-- Grid drawn dynamically + sat layer -->
-            <g id="grid"></g>
-            <g id="celestial"></g>
-            <g id="labels"></g>
+          <svg id="sky" viewBox="0 0 720 360" preserveAspectRatio="xMidYMid meet">
+            <g id="land"></g>
+            <g id="graticule"></g>
+            <g id="trails"></g>
           </svg>
           <canvas id="sky-canvas"></canvas>
         </div>
 
         <div class="panel">
-          <h2>Visible <span class="count" id="listCount">0</span></h2>
+          <h2>Above You <span class="count" id="listCount">0</span></h2>
           <div class="sat-list" id="satList">
             <div class="empty">Acquiring orbital data…</div>
           </div>
@@ -62,24 +61,17 @@
           <button class="chip" data-group="last30">Recent 30d</button>
         </div>
         <button class="chip active" id="sunlitToggle">Sunlit only</button>
-        <div class="slider-wrap">
-          <span>min elev</span>
-          <input type="range" id="elSlider" min="0" max="60" value="5" step="1">
-          <span class="slider-val" id="elVal">5°</span>
-        </div>
         <button class="chip" id="redMode">Night vision</button>
         <button class="chip" id="locBtn">Re-locate</button>
       </div>
 
       <div class="legend">
-        <span><i style="background:var(--magenta);box-shadow:0 0 4px var(--magenta)"></i> ISS / station</span>
-        <span><i style="background:var(--amber);box-shadow:0 0 4px var(--amber)"></i> naked eye</span>
+        <span><i style="background:var(--magenta);box-shadow:0 0 4px var(--magenta)"></i> ISS / station (trailed)</span>
+        <span><i style="background:var(--amber);box-shadow:0 0 4px var(--amber)"></i> naked eye (trailed)</span>
         <span><i style="background:#c9c5b0"></i> binoculars</span>
         <span><i style="background:var(--steel);opacity:.55"></i> telescope only</span>
-        <span><i style="background:#7a7567;opacity:.5"></i> sunlit (bright sky)</span>
-        <span><i style="background:#3a4565;opacity:.4"></i> in Earth shadow</span>
-        <span><i style="background:#ffd166;box-shadow:0 0 4px #ffd166"></i> sun</span>
-        <span><i style="background:#dde6f0"></i> moon</span>
+        <span><i style="background:rgba(106,144,200,.4)"></i> tracked (any sat)</span>
+        <span><i style="background:#7adba0;box-shadow:0 0 4px #7adba0"></i> you</span>
       </div>
 
       <footer>

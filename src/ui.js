@@ -32,16 +32,15 @@ const MAX_ROWS = 80;
  * Render the visible-sat list. Single innerHTML write to #satList. Caps at 80 rows.
  * @param {Array} items - sorted brightest-first by the worker
  * @param {number|null} selectedId
- * @param {number} minElev - degrees, used in the empty-state copy
  */
-export function renderList(items, selectedId, minElev) {
+export function renderList(items, selectedId) {
   const list = document.getElementById('satList');
   const countEl = document.getElementById('listCount');
   if (countEl) countEl.textContent = items.length.toLocaleString();
   if (!list) return;
 
   if (!items.length) {
-    list.innerHTML = `<div class="empty">Nothing matching above ${minElev}\u00b0 right now.<br>Try lowering elevation or toggling shadow-side sats.</div>`;
+    list.innerHTML = `<div class="empty">No satellites currently above your horizon.<br>Toggling shadow-side sats may help during the day.</div>`;
     return;
   }
 

@@ -3,6 +3,10 @@ import { loadGroups } from './tle-loader.js';
 import { drawGrid, updateCelestial, updateLabels } from './sky-svg.js';
 import { setupSkyCanvas } from './sky-canvas.js';
 import { sunECI, moonECI, eciDirToAzEl } from './astro.js';
+import { renderList, renderDetail, bindUi } from './ui.js';
+
+// Hardcoded for now — Task 12 wires this to the elevation slider.
+const MIN_ELEV = 5;
 
 console.log('orbitarium boot');
 console.log('satellite.js loaded:', typeof window.satellite !== 'undefined');
@@ -128,6 +132,16 @@ function onWorkerPositions(frame){
   }
 
   updateLabels(svg, frame.items, selectedId);
+
+  // List + detail panel (Task 11). Both rebuild from the freshest frame.
+  renderList(frame.items, selectedId, MIN_ELEV);
+  renderDetail(frame.items.find((it) => it.id === selectedId) || null);
+}
+
+// Helper: look up the current selection in the latest frame.
+function selectedItem() {
+  if (!latestFrame || selectedId == null) return null;
+  return latestFrame.items.find((it) => it.id === selectedId) || null;
 }
 
 worker.onmessage = (e) => {
@@ -216,6 +230,20 @@ canvasEl.addEventListener('click', (e) => {
   } else {
     selectedId = null;
   }
-  // Refresh labels immediately — feels snappier than waiting for the next tick.
-  if (latestFrame) updateLabels(svg, latestFrame.items, selectedId);
+  // Refresh labels + detail immediately — feels snappier than waiting for the next tick.
+  if (latestFrame) {
+    updateLabels(svg, latestFrame.items, selectedId);
+    renderList(latestFrame.items, selectedId, MIN_ELEV);
+    renderDetail(selectedItem());
+  }
+});
+
+// List-row clicks toggle the same selection state as canvas clicks.
+bindUi((id) => {
+  selectedId = (selectedId === id) ? null : id;
+  if (latestFrame) {
+    updateLabels(svg, latestFrame.items, selectedId);
+    renderList(latestFrame.items, selectedId, MIN_ELEV);
+    renderDetail(selectedItem());
+  }
 });

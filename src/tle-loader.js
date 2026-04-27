@@ -15,6 +15,10 @@ async function fetchGroupRaw(group, forceFetch) {
   const r = await fetch(CELESTRAK_BASE + encodeURIComponent(group));
   if (!r.ok) throw new Error('CelesTrak ' + r.status);
   const text = await r.text();
+  const parsed = parseTLE(text);
+  if (parsed.length === 0) {
+    throw new Error(`CelesTrak ${group}: no TLE records in response`);
+  }
   await put(group, text);
   return text;
 }
@@ -60,15 +64,19 @@ export async function loadGroups(enabledGroups, opts = {}) {
     }
   };
 
-  const visualRecs = await safeFetchParse('visual');
-  const stationsRecs = await safeFetchParse('stations');
+  const [visualRecs, stationsRecs, ...groupResults] = await Promise.all([
+    safeFetchParse('visual'),
+    safeFetchParse('stations'),
+    ...enabledGroups.map((g) => safeFetchParse(g)),
+  ]);
   const visualSet = new Set(visualRecs.map((s) => s.id));
   const stationsSet = new Set(stationsRecs.map((s) => s.id));
 
   const tles = [];
   const seen = new Set();
-  for (const group of enabledGroups) {
-    const recs = await safeFetchParse(group);
+  for (let i = 0; i < enabledGroups.length; i++) {
+    const group = enabledGroups[i];
+    const recs = groupResults[i];
     for (const rec of recs) {
       if (seen.has(rec.id)) continue;
       seen.add(rec.id);

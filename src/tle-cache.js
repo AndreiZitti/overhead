@@ -21,6 +21,7 @@ function openDB() {
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error('IndexedDB open blocked'));
   });
+  dbPromise.catch(() => { dbPromise = null; });
   return dbPromise;
 }
 

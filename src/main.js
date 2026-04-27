@@ -5,9 +5,6 @@ import { setupSkyCanvas } from './sky-canvas.js';
 import { sunECI, moonECI, eciDirToAzEl } from './astro.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
 
-// Hardcoded for now — Task 12 wires this to the elevation slider.
-const MIN_ELEV = 5;
-
 console.log('orbitarium boot');
 console.log('satellite.js loaded:', typeof window.satellite !== 'undefined');
 
@@ -26,12 +23,24 @@ function toast(msg) {
   toast._h = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-const state = { observer: null, tles: [] };
+const state = {
+  observer: null,
+  tles: [],
+  groups: { active: true, starlink: true, last30: false },
+  minElev: 5,
+  sunlitOnly: true,
+};
 
 state.observer = await getLocation();
 
 const locNameEl = document.getElementById('locName');
 const coordsEl = document.getElementById('coords');
+const groupChipsEl = document.getElementById('groupChips');
+const sunlitToggleEl = document.getElementById('sunlitToggle');
+const elSliderEl = document.getElementById('elSlider');
+const elValEl = document.getElementById('elVal');
+const redModeEl = document.getElementById('redMode');
+const locBtnEl = document.getElementById('locBtn');
 if (locNameEl) locNameEl.textContent = state.observer.name;
 if (coordsEl) coordsEl.textContent = fmtLatLon(state.observer);
 
@@ -78,7 +87,8 @@ let prevFrame = null;     // {timeMs, items, counts}
 let selectedId = null;
 
 // Geodetic observer in radians for astro helpers — lat/lon mapping matters!
-const observerGd = state.observer ? {
+// `let` so re-locate can reassign (Object.assign also works for non-null cases).
+let observerGd = state.observer ? {
   longitude: state.observer.lon * Math.PI / 180,
   latitude:  state.observer.lat * Math.PI / 180,
   height:    state.observer.alt
@@ -134,7 +144,7 @@ function onWorkerPositions(frame){
   updateLabels(svg, frame.items, selectedId);
 
   // List + detail panel (Task 11). Both rebuild from the freshest frame.
-  renderList(frame.items, selectedId, MIN_ELEV);
+  renderList(frame.items, selectedId, state.minElev);
   renderDetail(frame.items.find((it) => it.id === selectedId) || null);
 }
 
@@ -156,7 +166,7 @@ worker.onmessage = (e) => {
 
 if (state.tles.length > 0 && state.observer) {
   worker.postMessage({ type: 'init', tles: state.tles, observer: state.observer });
-  worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: true });
+  worker.postMessage({ type: 'config', minElev: state.minElev, sunlitOnly: state.sunlitOnly });
   // Single-tier 1Hz fine pass over ALL retained sats. Task 13 will replace this
   // with a coarse 0.2Hz + fine 1Hz two-tier scheme to avoid jank on big payloads.
   setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
@@ -233,7 +243,7 @@ canvasEl.addEventListener('click', (e) => {
   // Refresh labels + detail immediately — feels snappier than waiting for the next tick.
   if (latestFrame) {
     updateLabels(svg, latestFrame.items, selectedId);
-    renderList(latestFrame.items, selectedId, MIN_ELEV);
+    renderList(latestFrame.items, selectedId, state.minElev);
     renderDetail(selectedItem());
   }
 });
@@ -243,7 +253,106 @@ bindUi((id) => {
   selectedId = (selectedId === id) ? null : id;
   if (latestFrame) {
     updateLabels(svg, latestFrame.items, selectedId);
-    renderList(latestFrame.items, selectedId, MIN_ELEV);
+    renderList(latestFrame.items, selectedId, state.minElev);
     renderDetail(selectedItem());
   }
 });
+
+// --- Controls (Task 12) ---
+// Reload TLEs from currently-enabled groups and re-init worker. Slightly
+// duplicates boot's load+init dance, but boot has the awaited top-level path
+// while this runs async on demand — kept separate for clarity.
+async function reloadTles() {
+  const enabled = [];
+  if (state.groups.active) enabled.push('active');
+  if (state.groups.starlink) enabled.push('starlink');
+  if (state.groups.last30) enabled.push('last-30-days');
+
+  if (loadDot) loadDot.className = 'dot warn';
+  if (tleCountEl) tleCountEl.textContent = 'loading…';
+  try {
+    const { tles } = await loadGroups(enabled, { onWarn: toast });
+    state.tles = tles;
+    if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
+    if (loadDot) loadDot.className = 'dot live';
+    worker.postMessage({ type: 'init', tles, observer: state.observer });
+    worker.postMessage({ type: 'config', minElev: state.minElev, sunlitOnly: state.sunlitOnly });
+  } catch (err) {
+    console.error('TLE reload failed', err);
+    if (loadDot) loadDot.className = 'dot err';
+  }
+}
+
+// Group chips — delegated click on the row.
+if (groupChipsEl) {
+  groupChipsEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.chip[data-group]');
+    if (!btn) return;
+    const g = btn.dataset.group; // 'active' | 'starlink' | 'last30'
+    state.groups[g] = !state.groups[g];
+    btn.classList.toggle('active', state.groups[g]);
+    if (g === 'starlink' && state.groups[g]) toast('Loading ~7000 Starlink — may be slow');
+    else if (g === 'active' && state.groups[g]) toast('Loading ~10000 active satellites…');
+    await reloadTles();
+  });
+}
+
+// Sunlit-only toggle.
+if (sunlitToggleEl) {
+  sunlitToggleEl.addEventListener('click', () => {
+    state.sunlitOnly = !state.sunlitOnly;
+    sunlitToggleEl.classList.toggle('active', state.sunlitOnly);
+    worker.postMessage({ type: 'config', sunlitOnly: state.sunlitOnly });
+  });
+}
+
+// Min-elevation slider — debounce worker messages so dragging doesn't flood it.
+if (elSliderEl) {
+  let elDebounce;
+  elSliderEl.addEventListener('input', (e) => {
+    state.minElev = +e.target.value;
+    if (elValEl) elValEl.textContent = state.minElev + '°';
+    clearTimeout(elDebounce);
+    elDebounce = setTimeout(() => {
+      worker.postMessage({ type: 'config', minElev: state.minElev });
+    }, 150);
+  });
+}
+
+// Night vision — toggles `body.night` and persists across reloads.
+const NIGHT_KEY = 'orbitarium.night';
+function applyNight(on) {
+  document.body.classList.toggle('night', on);
+  if (redModeEl) redModeEl.classList.toggle('active', on);
+}
+applyNight(localStorage.getItem(NIGHT_KEY) === '1');
+if (redModeEl) {
+  redModeEl.addEventListener('click', () => {
+    const on = !document.body.classList.contains('night');
+    applyNight(on);
+    localStorage.setItem(NIGHT_KEY, on ? '1' : '0');
+  });
+}
+
+// Re-locate — re-acquire observer and push to worker + astro helpers.
+if (locBtnEl) {
+  locBtnEl.addEventListener('click', async () => {
+    toast('Re-acquiring location…');
+    state.observer = await getLocation();
+    if (locNameEl) locNameEl.textContent = state.observer.name;
+    if (coordsEl) coordsEl.textContent = fmtLatLon(state.observer);
+    const next = {
+      longitude: state.observer.lon * Math.PI / 180,
+      latitude:  state.observer.lat * Math.PI / 180,
+      height:    state.observer.alt,
+    };
+    if (observerGd) Object.assign(observerGd, next);
+    else observerGd = next;
+    worker.postMessage({
+      type: 'observer',
+      lat: state.observer.lat,
+      lon: state.observer.lon,
+      alt: state.observer.alt,
+    });
+  });
+}

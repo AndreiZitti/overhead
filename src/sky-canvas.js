@@ -22,14 +22,13 @@ const STYLE = {
  * Set up a canvas overlay for rendering satellite dots.
  *
  * @param {HTMLCanvasElement} canvasEl  the <canvas id="sky-canvas">
- * @param {{cx:number, cy:number, r:number}} plot  PLOT geometry from sky-svg
  * @returns {{
  *   render: (items: Array, selectedId: number|null) => void,
  *   hitTest: (cssX: number, cssY: number) => number|null,
  *   resize: () => void
  * }}
  */
-export function setupSkyCanvas(canvasEl, plot){
+export function setupSkyCanvas(canvasEl){
   const ctx = canvasEl.getContext('2d');
   let cssW = 0;
   let cssH = 0;
@@ -37,6 +36,11 @@ export function setupSkyCanvas(canvasEl, plot){
   // CSS-pixel positions of the last render, used by hitTest.
   const lastDots = [];
 
+  /**
+   * Re-runs DPR-aware sizing. Call after window resize AND after DPR changes
+   * (window dragged between 1x and 2x displays). DPR changes can be observed
+   * via `window.matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', ...)`.
+   */
   function resize(){
     const dpr = window.devicePixelRatio || 1;
     const rect = canvasEl.getBoundingClientRect();
@@ -60,6 +64,14 @@ export function setupSkyCanvas(canvasEl, plot){
   }
 
   function render(items, selectedId){
+    if (cssW === 0 || cssH === 0) {
+      // Layout not ready — try to (re)size. If still zero, bail rather than corrupt lastDots.
+      resize();
+      if (cssW === 0 || cssH === 0) {
+        lastDots.length = 0;
+        return;
+      }
+    }
     ctx.clearRect(0, 0, cssW, cssH);
     lastDots.length = 0;
 

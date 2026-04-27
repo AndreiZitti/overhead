@@ -14,6 +14,11 @@ let satrecs = [];        // [{id, name, satrec, isStation, inVisual}]
 let observerGd = null;   // {longitude, latitude, height} in radians/km
 let config = { minElev: 5, sunlitOnly: true };
 
+// Two-tier propagation state.
+let candidateIds = new Set();   // NORAD ids that might be above horizon
+let lastCoarseAt = 0;            // ms (timeMs of last coarse pass)
+const COARSE_INTERVAL_MS = 5000;
+
 // ---------- Inlined astro helpers ----------
 // Duplicated from src/astro.js intentionally: the worker is a separate module
 // graph and importing across the classic/module boundary is more pain than
@@ -112,6 +117,10 @@ function handleInit({ tles, observer }) {
     height:    observer.alt
   };
 
+  // Reset two-tier state so the first tick triggers a fresh coarse pass.
+  candidateIds = new Set();
+  lastCoarseAt = 0;
+
   self.postMessage({
     type: 'ready',
     total: tles.length,
@@ -128,6 +137,10 @@ function handleObserver({ lat, lon, alt }) {
     latitude:  lat * Math.PI / 180,
     height:    alt
   };
+
+  // Observer changed: candidate set is invalid, force a coarse pass next tick.
+  candidateIds = new Set();
+  lastCoarseAt = 0;
 }
 
 function handleConfig(payload) {
@@ -135,6 +148,31 @@ function handleConfig(payload) {
   if (typeof payload.sunlitOnly === 'boolean') config.sunlitOnly = payload.sunlitOnly;
 }
 
+// Coarse pass: cheap propagation across ALL satrecs to find candidates whose
+// elevation is within (minElev - 5°). Returns a Set of NORAD ids.
+function runCoarsePass(now, gmst) {
+  const buffer = 5;
+  const cutoff = (config.minElev - buffer) * Math.PI / 180;
+  const out = new Set();
+  for (const sat of satrecs) {
+    const pv = self.satellite.propagate(sat.satrec, now);
+    if (!pv.position || isNaN(pv.position.x)) continue;
+    const ecf = self.satellite.eciToEcf(pv.position, gmst);
+    const look = self.satellite.ecfToLookAngles(observerGd, ecf);
+    if (look.elevation > cutoff) out.add(sat.id);
+  }
+  return out;
+}
+
+/**
+ * Two-tier propagation:
+ *   - Coarse pass every 5s: propagate ALL satrecs, compute elevation only,
+ *     mark those with el > (minElev - 5°) as candidates. ~200ms for 17k sats.
+ *   - Fine pass every 1s: propagate candidates only, full visibility math.
+ *     ~30ms for ~few hundred candidates.
+ * This keeps the per-tick cost dominated by the cheap coarse pass cadence
+ * rather than the expensive fine pass running over everything.
+ */
 function handleTick({ timeMs }) {
   if (!observerGd || satrecs.length === 0) {
     self.postMessage({
@@ -148,6 +186,13 @@ function handleTick({ timeMs }) {
 
   const now = new Date(timeMs);
   const gmst = self.satellite.gstime(now);
+
+  // Coarse pass — recompute candidate set every COARSE_INTERVAL_MS or if empty.
+  if (timeMs - lastCoarseAt > COARSE_INTERVAL_MS || candidateIds.size === 0) {
+    candidateIds = runCoarsePass(now, gmst);
+    lastCoarseAt = timeMs;
+  }
+
   const sunDir = sunECI(now);
 
   // Observer darkness from the sun's altitude.
@@ -159,6 +204,7 @@ function handleTick({ timeMs }) {
   const tierCounts = { naked: 0, binocular: 0, telescope: 0, daylight: 0, shadow: 0 };
 
   for (const sat of satrecs) {
+    if (!candidateIds.has(sat.id)) continue;
     const pv = self.satellite.propagate(sat.satrec, now);
     if (!pv.position || isNaN(pv.position.x)) continue;
 

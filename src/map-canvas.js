@@ -60,14 +60,13 @@ export function setupMapCanvas(canvasEl) {
 
     ctx.clearRect(0, 0, cssW, cssH);
 
-    // 1. Background dots — every satellite, almost imperceptible. Forms a
-    // subtle "satellite density" texture without competing with the basemap.
-    // Drawn as 1px rects (cheap) instead of arcs.
+    // 1. Background dots — every satellite. Cull off-viewport.
     const bg = STYLE.background;
     ctx.fillStyle = bg.fill;
     ctx.shadowBlur = 0;
     for (const p of allPositions) {
       const [x, y] = toCss(p.lon, p.lat);
+      if (x < -2 || x > cssW + 2 || y < -2 || y > cssH + 2) continue;
       ctx.fillRect(x - 0.5, y - 0.5, 1, 1);
     }
 
@@ -99,6 +98,7 @@ export function setupMapCanvas(canvasEl) {
       ctx.beginPath();
       for (const v of list) {
         const [x, y] = toCss(v.lon, v.lat);
+        if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) continue;
         ctx.moveTo(x + s.radius, y);
         ctx.arc(x, y, s.radius, 0, Math.PI * 2);
         lastDots.push({ id: v.id, x, y, r: s.radius });
@@ -108,16 +108,13 @@ export function setupMapCanvas(canvasEl) {
     ctx.shadowBlur = 0;
 
     // Background-only sats also need to be hit-testable (they may be selectable).
-    for (const p of allPositions) {
-      // Skip ids already in lastDots from the visibles pass.
-      // Cheap: do a Set lookup.
-    }
-    // Build Set of visible ids to avoid re-adding.
+    // Cull off-viewport here too — if you can't see it you can't click it.
     const visibleIdSet = new Set();
     for (const d of lastDots) visibleIdSet.add(d.id);
     for (const p of allPositions) {
       if (visibleIdSet.has(p.id)) continue;
       const [x, y] = toCss(p.lon, p.lat);
+      if (x < 0 || x > cssW || y < 0 || y > cssH) continue;
       lastDots.push({ id: p.id, x, y, r: bg.radius });
     }
 

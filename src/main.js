@@ -29,6 +29,7 @@ const state = {
   groups: { active: true, starlink: true, last30: false },
   minElev: 5,
   sunlitOnly: true,
+  lastFetchAt: 0,
 };
 
 state.observer = await getLocation();
@@ -64,8 +65,9 @@ if (loadDot) loadDot.className = 'dot warn';
 if (tleCountEl) tleCountEl.textContent = 'loading…';
 
 try {
-  const { tles } = await loadGroups(['active', 'starlink'], { onWarn: toast });
+  const { tles, fetchedAt } = await loadGroups(['active', 'starlink'], { onWarn: toast });
   state.tles = tles;
+  state.lastFetchAt = fetchedAt;
   if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
   if (loadDot) loadDot.className = 'dot live';
 } catch (e) {
@@ -271,8 +273,9 @@ async function reloadTles() {
   if (loadDot) loadDot.className = 'dot warn';
   if (tleCountEl) tleCountEl.textContent = 'loading…';
   try {
-    const { tles } = await loadGroups(enabled, { onWarn: toast });
+    const { tles, fetchedAt } = await loadGroups(enabled, { onWarn: toast });
     state.tles = tles;
+    state.lastFetchAt = fetchedAt;
     if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
     if (loadDot) loadDot.className = 'dot live';
     worker.postMessage({ type: 'init', tles, observer: state.observer });
@@ -282,6 +285,13 @@ async function reloadTles() {
     if (loadDot) loadDot.className = 'dot err';
   }
 }
+
+// Background staleness check: every minute, refresh TLEs if cache is older than 6 h.
+const FRESH_WINDOW_MS = 6 * 60 * 60 * 1000;
+setInterval(() => {
+  if (!state.lastFetchAt) return;
+  if (Date.now() - state.lastFetchAt > FRESH_WINDOW_MS) reloadTles();
+}, 60_000);
 
 // Group chips — delegated click on the row.
 if (groupChipsEl) {

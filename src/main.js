@@ -62,15 +62,41 @@ let selectedId = null;
 let stationIdSet = new Set();
 let nextPasses = [];
 
-// Per-satellite trail history — populated each render frame for stations,
-// naked-eye visibles, and the selected sat. Other sats don't trail.
-const TRAIL_MAX = 60; // ~2 seconds at 30 fps
+// Per-satellite trail history — populated each render frame for:
+//   - stations (always, even off-screen)
+//   - naked-eye visibles (always)
+//   - selected sat (always)
+//   - ANY visible non-shadow sat whose ground point is in the current viewport
+//     (capped at TRAIL_VIEWPORT_CAP brightest)
+const TRAIL_MAX = 60;             // ~2 seconds at 30 fps
+const TRAIL_VIEWPORT_CAP = 40;    // perf guard at low zoom
 const trailHistory = new Map();
+
 function maintainTrails(visibles) {
+  const bounds = mapOverlay.map.getBounds();
   const eligible = new Set();
+
+  // Always-eligible: stations, naked-eye, selected.
   for (const v of visibles) {
-    if (!(v.isStation || v.tier === 'naked' || v.id === selectedId)) continue;
-    eligible.add(v.id);
+    if (v.isStation || v.tier === 'naked' || v.id === selectedId) {
+      eligible.add(v.id);
+    }
+  }
+
+  // Plus: top-N brightest non-shadow visibles inside the viewport.
+  const inView = [];
+  for (const v of visibles) {
+    if (eligible.has(v.id)) continue;
+    if (v.tier === 'shadow' || v.tier === 'below') continue;
+    if (!bounds.contains([v.lat, v.lon])) continue;
+    inView.push(v);
+  }
+  inView.sort((a, b) => a.mag - b.mag);
+  for (const v of inView.slice(0, TRAIL_VIEWPORT_CAP)) eligible.add(v.id);
+
+  // Append current position to each eligible sat's history.
+  for (const v of visibles) {
+    if (!eligible.has(v.id)) continue;
     let arr = trailHistory.get(v.id);
     if (!arr) { arr = []; trailHistory.set(v.id, arr); }
     arr.push([v.lat, v.lon]);

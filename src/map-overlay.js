@@ -134,13 +134,18 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       for (const v of visibles) {
-        const isSelected = v.id === selectedId;
-        const trailEligible = isSelected || v.isStation || v.tier === 'naked';
-        if (!trailEligible) continue;
         const trail = trailHistory.get(v.id);
         if (!trail || trail.length < 2) continue;
 
-        const cat = isSelected ? 'selected' : v.isStation ? 'station' : 'naked';
+        // Color category mirrors dot category (selected > station > tier).
+        const isSelected = v.id === selectedId;
+        const cat = isSelected ? 'selected'
+                  : v.isStation ? 'station'
+                  : v.tier === 'naked' ? 'naked'
+                  : v.tier === 'binocular' ? 'binocular'
+                  : v.tier === 'telescope' ? 'telescope'
+                  : v.tier === 'daylight' ? 'daylight'
+                  : 'naked';
         const s = STYLE[cat];
         const headWidth = s.radius * 0.95;
         const headAlpha = 0.85;

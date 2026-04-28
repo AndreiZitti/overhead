@@ -172,6 +172,56 @@
     filter:drop-shadow(0 0 4px rgba(122,219,160,0.7));
   }
 
+  /* Next-pass chip (bottom-left of map, above tiles + overlay). */
+  .next-pass{
+    position:absolute;
+    bottom:14px;
+    left:14px;
+    z-index:500;
+    background:rgba(5,6,12,0.82);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:10px 14px 11px;
+    font-family:'JetBrains Mono',monospace;
+    color:var(--ink-1);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    pointer-events:none;
+    min-width:180px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.5);
+  }
+  .next-pass[hidden]{display:none}
+  .next-pass .np-label{
+    font-size:9px;
+    text-transform:uppercase;
+    letter-spacing:.14em;
+    color:var(--ink-2);
+    margin-bottom:5px;
+  }
+  .next-pass .np-name{
+    font-family:'Fraunces',serif;
+    font-style:italic;
+    font-size:18px;
+    font-weight:400;
+    color:var(--magenta);
+    line-height:1.1;
+    margin-bottom:4px;
+    text-shadow:0 0 12px rgba(232,123,177,0.5);
+  }
+  .next-pass .np-when{
+    font-size:13px;
+    color:var(--ink-0);
+    font-feature-settings:"tnum" 1;
+    letter-spacing:.02em;
+  }
+  .next-pass .np-dir{
+    font-size:10px;
+    color:var(--ink-2);
+    margin-top:3px;
+    text-transform:uppercase;
+    letter-spacing:.1em;
+  }
+
   /* List panel */
   .panel{
     background:linear-gradient(180deg, var(--bg-1), var(--bg-0));

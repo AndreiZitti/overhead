@@ -14,14 +14,22 @@ let stationIds = new Set();
 let observerGd = null;     // {longitude, latitude, height} radians/km
 let config = { minElev: 5, sunlitOnly: true };
 
-// Trails are computed only for the currently-selected satellite — flightradar
-// style. Recomputed every TRAIL_INTERVAL_MS (cheap: one sat × 61 propagations).
+// Trails: recomputed every TRAIL_INTERVAL_MS, ±30 min window, 1 sample/min.
 const TRAIL_INTERVAL_MS = 15_000;
-const TRAIL_HALF_WINDOW_MIN = 30; // minutes before/after now
-const TRAIL_STEP_MIN = 1;          // 1 sample/min → 61 points
+const TRAIL_HALF_WINDOW_MIN = 30;
+const TRAIL_STEP_MIN = 1;
 let selectedTrailId = null;
 let lastTrailAt = 0;
-let trailCache = {};               // {[id]: [[lon, lat], ...]} — at most one entry
+let trailCache = {};
+
+// Next-pass predictions: scan forward up to 24 h, find next time each station
+// rises above PASS_MIN_ELEV. Recomputed every PASS_INTERVAL_MS.
+const PASS_LOOKAHEAD_MS = 24 * 60 * 60 * 1000;
+const PASS_COARSE_STEP_MS = 60_000; // 1-min coarse step
+const PASS_MIN_ELEV = 10;            // degrees — comfortably visible
+let lastPassesAt = 0;
+let passesCache = [];                // sorted by riseTimeMs ascending
+const PASS_INTERVAL_MS = 5 * 60_000;
 
 // --- Astronomy helpers (inlined; can't import from astro.js in classic worker) ---
 
@@ -107,6 +115,8 @@ function handleInit({ tles, observer }) {
 
   trailCache = {};
   lastTrailAt = 0;
+  passesCache = [];
+  lastPassesAt = 0;
 
   self.postMessage({ type: 'ready', total: tles.length, retained: satrecs.length });
 }
@@ -119,6 +129,8 @@ function handleObserver({ lat, lon, alt }) {
   };
   trailCache = {};
   lastTrailAt = 0;
+  passesCache = [];
+  lastPassesAt = 0;
 }
 
 function handleConfig(payload) {
@@ -145,6 +157,66 @@ function computeTrail(satrec, nowMs) {
   }
   return points;
 }
+
+// --- Next-pass prediction ---
+
+function lookAngleAt(satrec, timeMs) {
+  const date = new Date(timeMs);
+  const pv = self.satellite.propagate(satrec, date);
+  if (!pv.position || isNaN(pv.position.x)) return null;
+  const gmst = self.satellite.gstime(date);
+  const ecf = self.satellite.eciToEcf(pv.position, gmst);
+  const look = self.satellite.ecfToLookAngles(observerGd, ecf);
+  return { elDeg: look.elevation * RAD2DEG, azDeg: look.azimuth * RAD2DEG };
+}
+
+function findNextRise(satrec, startMs) {
+  // Coarse scan: find first 1-min sample where elevation crosses up through cutoff.
+  let prev = lookAngleAt(satrec, startMs);
+  if (!prev) return null;
+  for (let t = startMs + PASS_COARSE_STEP_MS; t < startMs + PASS_LOOKAHEAD_MS; t += PASS_COARSE_STEP_MS) {
+    const cur = lookAngleAt(satrec, t);
+    if (!cur) { prev = null; continue; }
+    if (prev && prev.elDeg < PASS_MIN_ELEV && cur.elDeg >= PASS_MIN_ELEV) {
+      // Refine to ~5-second resolution via binary search.
+      let lo = t - PASS_COARSE_STEP_MS, hi = t;
+      while (hi - lo > 5_000) {
+        const mid = (lo + hi) / 2;
+        const m = lookAngleAt(satrec, mid);
+        if (!m || m.elDeg < PASS_MIN_ELEV) lo = mid;
+        else hi = mid;
+      }
+      const at = lookAngleAt(satrec, hi);
+      if (!at) return null;
+      return { timeMs: hi, azDeg: at.azDeg };
+    }
+    prev = cur;
+  }
+  return null;
+}
+
+function refreshPasses(nowMs) {
+  if (!observerGd) return;
+  const passes = [];
+  for (const sat of satrecs) {
+    if (!sat.isStation) continue;
+    const next = findNextRise(sat.satrec, nowMs);
+    if (next) {
+      passes.push({
+        id: sat.id,
+        name: sat.name,
+        riseTimeMs: next.timeMs,
+        riseAzDeg: next.azDeg,
+      });
+    }
+  }
+  passes.sort((a, b) => a.riseTimeMs - b.riseTimeMs);
+  passesCache = passes;
+  lastPassesAt = nowMs;
+  self.postMessage({ type: 'passes', passes: passesCache });
+}
+
+// --- Trails ---
 
 function refreshTrails(nowMs, eligibleIds) {
   const next = {};
@@ -250,11 +322,15 @@ function handleTick({ timeMs }) {
   });
 
   // Trails: every station + every naked-eye visible. Selected always included.
-  // At city zoom only a handful are in viewport, so the visual stays clean.
   if (timeMs - lastTrailAt > TRAIL_INTERVAL_MS || lastTrailAt === 0) {
     const eligible = new Set(stationIds);
     for (const v of visibles) if (v.tier === 'naked') eligible.add(v.id);
     refreshTrails(timeMs, eligible);
+  }
+
+  // Next-pass predictions: refresh every 5 min.
+  if (timeMs - lastPassesAt > PASS_INTERVAL_MS || lastPassesAt === 0) {
+    refreshPasses(timeMs);
   }
 
   self.postMessage({

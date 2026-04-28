@@ -70,6 +70,7 @@ let latestFrame = null;
 let prevFrame = null;
 let selectedId = null;
 let stationIdSet = new Set();
+let nextPasses = []; // sorted ascending by riseTimeMs
 
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtClock(d) {
@@ -104,7 +105,53 @@ function onWorkerPositions(frame) {
 worker.onmessage = (e) => {
   const msg = e.data;
   if (msg.type === 'positions') onWorkerPositions(msg);
+  else if (msg.type === 'passes') {
+    nextPasses = msg.passes || [];
+    updateNextPassChip();
+  }
 };
+
+// --- Next-pass chip ---
+const npEl = document.getElementById('nextPass');
+const npNameEl = document.getElementById('npName');
+const npWhenEl = document.getElementById('npWhen');
+const npDirEl = document.getElementById('npDir');
+
+const COMPASS_16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function azDegToCompass(deg) {
+  const d = ((deg % 360) + 360) % 360;
+  return COMPASS_16[Math.round(d / 22.5) % 16];
+}
+
+function fmtCountdown(ms) {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `in ${h}h ${m}m`;
+  if (m > 0) return `in ${m}m ${String(s).padStart(2, '0')}s`;
+  return `in ${s}s`;
+}
+
+function updateNextPassChip() {
+  if (!npEl) return;
+  // Drop passes already in the past.
+  const now = Date.now();
+  while (nextPasses.length > 0 && nextPasses[0].riseTimeMs <= now) {
+    nextPasses.shift();
+  }
+  if (nextPasses.length === 0) {
+    npEl.hidden = true;
+    return;
+  }
+  const next = nextPasses[0];
+  npEl.hidden = false;
+  if (npNameEl) npNameEl.textContent = next.name.replace(/\s*\(.*?\)\s*/g, '').slice(0, 18);
+  if (npWhenEl) npWhenEl.textContent = fmtCountdown(next.riseTimeMs - now);
+  if (npDirEl) npDirEl.textContent = `rises ${azDegToCompass(next.riseAzDeg)}`;
+}
+// Refresh countdown every second so it stays smooth between worker passes-pushes.
+setInterval(updateNextPassChip, 1000);
 
 if (state.tles.length > 0 && state.observer) {
   for (const tle of state.tles) if (tle.isStation) stationIdSet.add(tle.id);

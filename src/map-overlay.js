@@ -154,23 +154,35 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
         ctx.shadowBlur = s.blur ? s.blur * 0.35 : 0;
         ctx.shadowColor = s.fill;
 
-        // Pre-project all trail points once.
+        // Subsample to at most TRAIL_DRAW_SEGMENTS visible segments — for an
+        // 8-second history we'd otherwise blow the per-frame stroke budget.
+        const TRAIL_DRAW_SEGMENTS = 60;
         const len = trail.length;
-        const coords = new Array(len);
-        for (let i = 0; i < len; i++) {
-          coords[i] = toCanvasPx(trail[i][0], trail[i][1]);
+        const stride = Math.max(1, Math.floor(len / TRAIL_DRAW_SEGMENTS));
+
+        // Pre-project the points we'll actually use.
+        const sampledIndexes = [];
+        for (let i = 0; i < len; i += stride) sampledIndexes.push(i);
+        if (sampledIndexes[sampledIndexes.length - 1] !== len - 1) {
+          sampledIndexes.push(len - 1); // always include the head
+        }
+        const slen = sampledIndexes.length;
+        const coords = new Array(slen);
+        for (let k = 0; k < slen; k++) {
+          const i = sampledIndexes[k];
+          coords[k] = toCanvasPx(trail[i][0], trail[i][1]);
         }
 
-        for (let i = 1; i < len; i++) {
-          const t = i / (len - 1); // 0 at tail, 1 at head
-          const tt = t * t;        // quadratic emphasis
+        for (let k = 1; k < slen; k++) {
+          const t = k / (slen - 1); // 0 at tail, 1 at head
+          const tt = t * t;          // quadratic emphasis
           const width = headWidth * t;
           if (width < 0.4) continue;
           ctx.globalAlpha = headAlpha * tt;
           ctx.lineWidth = width;
           ctx.beginPath();
-          ctx.moveTo(coords[i - 1][0], coords[i - 1][1]);
-          ctx.lineTo(coords[i][0], coords[i][1]);
+          ctx.moveTo(coords[k - 1][0], coords[k - 1][1]);
+          ctx.lineTo(coords[k][0], coords[k][1]);
           ctx.stroke();
         }
       }

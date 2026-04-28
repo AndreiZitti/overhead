@@ -68,7 +68,7 @@ let nextPasses = [];
 //   - selected sat (always)
 //   - ANY visible non-shadow sat whose ground point is in the current viewport
 //     (capped at TRAIL_VIEWPORT_CAP brightest)
-const TRAIL_MAX = 60;             // ~2 seconds at 30 fps
+const TRAIL_MAX = 240;            // ~8 seconds at 30 fps
 const TRAIL_VIEWPORT_CAP = 40;    // perf guard at low zoom
 const trailHistory = new Map();
 

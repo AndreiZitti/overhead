@@ -255,21 +255,31 @@ let flightSelectedId = null;
 let flightSelectedRoute = null;
 const aircraftTrails = new Map();
 
+// Snap-smoothing: when a new poll lands, each aircraft's reported position
+// usually differs from our dead-reckoned prediction by 50-200 m (wind, turns,
+// imperfect velocity). We carry a per-aircraft offset and decay it to zero
+// over SNAP_SMOOTH_MS so positions converge smoothly instead of jolting.
+const SNAP_SMOOTH_MS = 1000;
+
 function deadReckonAircraft(now) {
   if (aircraft.length === 0) return [];
   const dtSec = (now - aircraftBaseMs) / 1000;
   const out = new Array(aircraft.length);
   for (let i = 0; i < aircraft.length; i++) {
     const a = aircraft[i];
-    if (a.onGround || a.velocityMs == null || a.headingDeg == null) {
-      out[i] = a;
-      continue;
+    let lat = a.lat, lon = a.lon;
+    if (!a.onGround && a.velocityMs != null && a.headingDeg != null) {
+      const distM = a.velocityMs * dtSec;
+      const h = a.headingDeg * Math.PI / 180;
+      lat += (distM * Math.cos(h)) / 111000;
+      lon += (distM * Math.sin(h)) / (111000 * Math.cos(a.lat * Math.PI / 180));
     }
-    const distM = a.velocityMs * dtSec;
-    const h = a.headingDeg * Math.PI / 180;
-    const latStep = (distM * Math.cos(h)) / 111000;
-    const lonStep = (distM * Math.sin(h)) / (111000 * Math.cos(a.lat * Math.PI / 180));
-    out[i] = { ...a, lat: a.lat + latStep, lon: a.lon + lonStep };
+    if (a.snapDeltaLat || a.snapDeltaLon) {
+      const decay = Math.max(0, 1 - (now - aircraftBaseMs) / SNAP_SMOOTH_MS);
+      lat += a.snapDeltaLat * decay;
+      lon += a.snapDeltaLon * decay;
+    }
+    out[i] = a.snapDeltaLat || a.snapDeltaLon ? { ...a, lat, lon } : (lat === a.lat && lon === a.lon ? a : { ...a, lat, lon });
   }
   return out;
 }
@@ -297,15 +307,39 @@ async function pollFlights() {
       south: b.getSouth(), north: b.getNorth(),
       west: b.getWest(), east: b.getEast(),
     });
+    // Compute the snap-smoothing delta for each aircraft we already had,
+    // comparing our last predicted position to the freshly reported one.
+    // The delta decays in deadReckonAircraft over ~1 sec.
+    const now = Date.now();
+    const predicted = deadReckonAircraft(now);
+    const predById = new Map();
+    for (const p of predicted) predById.set(p.id, p);
+    for (const a of next) {
+      const prior = predById.get(a.id);
+      if (prior) {
+        a.snapDeltaLat = prior.lat - a.lat;
+        a.snapDeltaLon = prior.lon - a.lon;
+      } else {
+        a.snapDeltaLat = 0;
+        a.snapDeltaLon = 0;
+      }
+    }
     aircraft = next;
-    aircraftBaseMs = Date.now();
+    aircraftBaseMs = now;
     if (totalCountEl) totalCountEl.textContent = aircraft.length.toLocaleString();
     if (visCountEl) visCountEl.textContent = '—';
     if (loadDot) loadDot.className = 'dot live';
   } catch (e) {
-    console.warn('OpenSky fetch failed', e);
+    console.warn('flight fetch failed', e);
     if (loadDot) loadDot.className = 'dot err';
   }
+}
+
+// Debounced re-poll on map pan/zoom so rapid movement doesn't fan out fetches.
+let pollPanTimer = null;
+function schedulePollFlights() {
+  clearTimeout(pollPanTimer);
+  pollPanTimer = setTimeout(pollFlights, 800);
 }
 
 function startFlightMode() {
@@ -315,13 +349,14 @@ function startFlightMode() {
   if (npEl) npEl.hidden = true;
   pollFlights();
   flightPollHandle = setInterval(pollFlights, FLIGHT_POLL_MS);
-  // Refetch when the user pans/zooms (debounced by Leaflet's moveend).
-  mapOverlay.map.on('moveend', pollFlights);
+  // Refetch when the user pans/zooms — debounced 800ms.
+  mapOverlay.map.on('moveend', schedulePollFlights);
 }
 
 function stopFlightMode() {
   if (flightPollHandle) { clearInterval(flightPollHandle); flightPollHandle = null; }
-  mapOverlay.map.off('moveend', pollFlights);
+  clearTimeout(pollPanTimer);
+  mapOverlay.map.off('moveend', schedulePollFlights);
   aircraft = [];
   aircraftTrails.clear();
   flightSelectedId = null;

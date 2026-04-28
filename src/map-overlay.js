@@ -279,9 +279,11 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
   // -----------------------------------------------------------------------
 
   const FLIGHT_STYLE = {
-    air:       { fill: '#ffd078', stroke: '#1a1200', size: 6,   blur: 4 },
-    ground:    { fill: 'rgba(160, 160, 160, 0.55)', stroke: 'rgba(0,0,0,0.6)', size: 4,   blur: 0 },
-    selected:  { fill: '#7adba0', stroke: '#0a1810', size: 8,   blur: 12 },
+    // shadowBlur is expensive at canvas-2d scale × N planes. Drop it on the
+    // common case (air); only the selected plane glows.
+    air:       { fill: '#ffd078', stroke: '#1a1200', size: 6, blur: 0 },
+    ground:    { fill: 'rgba(160, 160, 160, 0.55)', stroke: 'rgba(0,0,0,0.6)', size: 4, blur: 0 },
+    selected:  { fill: '#7adba0', stroke: '#0a1810', size: 8, blur: 12 },
   };
 
   // Plane silhouette — fuselage, swept wings, horizontal stabilizer.
@@ -353,7 +355,9 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
         ctx.shadowBlur = s.blur ? s.blur * 0.4 : 0;
         ctx.shadowColor = s.fill;
 
-        const TRAIL_DRAW_SEGMENTS = 60;
+        // Aircraft trails: 30 segments (vs 60 for sats) — saves ~half the
+        // stroke calls per frame at the cost of slight tail blockiness.
+        const TRAIL_DRAW_SEGMENTS = 30;
         const len = trail.length;
         const stride = Math.max(1, Math.floor(len / TRAIL_DRAW_SEGMENTS));
         const sampledIndexes = [];

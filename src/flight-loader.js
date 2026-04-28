@@ -1,8 +1,8 @@
-// Live aircraft state vectors from the OpenSky Network.
-// Anonymous access works (CORS-enabled) but is rate-limited to ~10s resolution
-// and 100 req/day per IP. Free account upgrades the limit; we don't auth here.
+// Live aircraft state vectors from the OpenSky Network, via our same-origin
+// /api/flights proxy. Direct browser fetches are blocked because OpenSky's
+// Access-Control-Allow-Origin restricts to their own domain.
 
-const OPENSKY_BASE = 'https://opensky-network.org/api/states/all';
+const FLIGHTS_BASE = '/api/flights';
 
 /**
  * Fetch aircraft inside the given lat/lon bounding box.
@@ -13,12 +13,12 @@ const OPENSKY_BASE = 'https://opensky-network.org/api/states/all';
  */
 export async function fetchAircraft(bounds) {
   const url =
-    `${OPENSKY_BASE}?lamin=${bounds.south.toFixed(4)}` +
+    `${FLIGHTS_BASE}?lamin=${bounds.south.toFixed(4)}` +
     `&lomin=${bounds.west.toFixed(4)}` +
     `&lamax=${bounds.north.toFixed(4)}` +
     `&lomax=${bounds.east.toFixed(4)}`;
   const r = await fetch(url);
-  if (!r.ok) throw new Error('OpenSky ' + r.status);
+  if (!r.ok) throw new Error('flights API ' + r.status);
   const data = await r.json();
   if (!data || !Array.isArray(data.states)) return [];
   const out = [];

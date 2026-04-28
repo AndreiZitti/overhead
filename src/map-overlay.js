@@ -99,7 +99,7 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     return x >= -2 && x <= cssW + 2 && y >= -2 && y <= cssH + 2;
   }
 
-  function render(allPositions, visibles, selectedId) {
+  function render(allPositions, visibles, trailHistory, selectedId) {
     if (cssW === 0 || cssH === 0) {
       reset();
       if (cssW === 0 || cssH === 0) {
@@ -108,14 +108,10 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       }
     }
 
-    // Motion-blur fade: erase ~6% of canvas alpha each frame instead of fully
-    // clearing. Stationary dots get redrawn at full alpha so they look crisp;
-    // moving dots leave a fading comet trail. Basemap shows through because
-    // 'destination-out' only affects existing canvas pixels.
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
-    ctx.fillRect(0, 0, cssW, cssH);
-    ctx.globalCompositeOperation = 'source-over';
+    // Full clear each frame. Per-sat trails are drawn from cached histories
+    // (see Section 1.5) — much cleaner than the destination-out fade trick,
+    // which suffered density artifacts where many sats overlap.
+    ctx.clearRect(0, 0, cssW, cssH);
 
     // 1. Background dots (very faint, every satellite).
     const bg = STYLE.background;
@@ -127,6 +123,40 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
         if (!inViewPx(x, y)) continue;
         ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
       }
+    }
+
+    // 1.5 Trails for important sats only (stations + naked-eye + selected).
+    // Cheap polylines through each sat's history. Drawn before dots so the
+    // current dot sits on top of its own tail.
+    if (trailHistory && trailHistory.size > 0) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const v of visibles) {
+        const isSelected = v.id === selectedId;
+        const trailEligible = isSelected || v.isStation || v.tier === 'naked';
+        if (!trailEligible) continue;
+        const trail = trailHistory.get(v.id);
+        if (!trail || trail.length < 2) continue;
+
+        const cat = isSelected ? 'selected' : v.isStation ? 'station' : 'naked';
+        const s = STYLE[cat];
+        ctx.strokeStyle = s.fill;
+        ctx.lineWidth = s.radius * 0.85;
+        ctx.globalAlpha = 0.55;
+        ctx.shadowBlur = s.blur ? s.blur * 0.5 : 0;
+        ctx.shadowColor = s.fill;
+
+        ctx.beginPath();
+        for (let i = 0; i < trail.length; i++) {
+          const [lat, lon] = trail[i];
+          const [x, y] = toCanvasPx(lat, lon);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
     }
 
     // 2. Visibles bucketed by render category (selection > station > tier).

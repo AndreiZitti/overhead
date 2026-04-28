@@ -62,6 +62,26 @@ let selectedId = null;
 let stationIdSet = new Set();
 let nextPasses = [];
 
+// Per-satellite trail history — populated each render frame for stations,
+// naked-eye visibles, and the selected sat. Other sats don't trail.
+const TRAIL_MAX = 30; // ~1 second at 30 fps
+const trailHistory = new Map();
+function maintainTrails(visibles) {
+  const eligible = new Set();
+  for (const v of visibles) {
+    if (!(v.isStation || v.tier === 'naked' || v.id === selectedId)) continue;
+    eligible.add(v.id);
+    let arr = trailHistory.get(v.id);
+    if (!arr) { arr = []; trailHistory.set(v.id, arr); }
+    arr.push([v.lat, v.lon]);
+    if (arr.length > TRAIL_MAX) arr.shift();
+  }
+  // Drop trails for sats that fell out of eligibility.
+  for (const id of trailHistory.keys()) {
+    if (!eligible.has(id)) trailHistory.delete(id);
+  }
+}
+
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtClock(d) {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
@@ -239,7 +259,8 @@ function renderFrame() {
       allPos = latestFrame.allPositions;
       vis = latestFrame.visibles;
     }
-    mapOverlay.render(allPos, vis, selectedId);
+    maintainTrails(vis);
+    mapOverlay.render(allPos, vis, trailHistory, selectedId);
   }
   requestAnimationFrame(renderFrame);
 }

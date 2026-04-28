@@ -299,9 +299,23 @@ function maintainAircraftTrails(rendered) {
   }
 }
 
+const loadingEl = document.getElementById('mapLoading');
+const loadingTextEl = document.getElementById('loadingText');
+function showLoading(text) {
+  if (!loadingEl) return;
+  if (loadingTextEl) loadingTextEl.textContent = text || 'Loading…';
+  loadingEl.hidden = false;
+}
+function hideLoading() { if (loadingEl) loadingEl.hidden = true; }
+
 async function pollFlights() {
   if (state.mode !== 'flights') return;
   const b = mapOverlay.map.getBounds();
+  // Show loading only on the FIRST poll (when we have nothing yet) or on a
+  // user-triggered refetch (debounced moveend). Background 10s polls stay
+  // silent so the spinner doesn't flash every cycle.
+  const isFirstLoad = aircraft.length === 0;
+  if (isFirstLoad) showLoading('Finding aircraft');
   try {
     const next = await fetchAircraft({
       south: b.getSouth(), north: b.getNorth(),
@@ -329,9 +343,11 @@ async function pollFlights() {
     if (totalCountEl) totalCountEl.textContent = aircraft.length.toLocaleString();
     if (visCountEl) visCountEl.textContent = '—';
     if (loadDot) loadDot.className = 'dot live';
+    hideLoading();
   } catch (e) {
     console.warn('flight fetch failed', e);
     if (loadDot) loadDot.className = 'dot err';
+    if (isFirstLoad) showLoading('Couldn\'t reach flight feed');
   }
 }
 
@@ -357,6 +373,7 @@ function stopFlightMode() {
   if (flightPollHandle) { clearInterval(flightPollHandle); flightPollHandle = null; }
   clearTimeout(pollPanTimer);
   mapOverlay.map.off('moveend', schedulePollFlights);
+  hideLoading();
   aircraft = [];
   aircraftTrails.clear();
   flightSelectedId = null;

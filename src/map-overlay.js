@@ -125,9 +125,11 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       }
     }
 
-    // 1.5 Trails for important sats only (stations + naked-eye + selected).
-    // Cheap polylines through each sat's history. Drawn before dots so the
-    // current dot sits on top of its own tail.
+    // 1.5 Trails for important sats (stations + naked-eye + selected).
+    // Each trail is drawn as N short segments with quadratically tapering
+    // alpha and width — opaque + thick at the head, transparent + thin at
+    // the tail. Quadratic ramp emphasizes the head so it reads as the dot's
+    // direction of motion. Sub-pixel segments at the tail are skipped.
     if (trailHistory && trailHistory.size > 0) {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -140,20 +142,32 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
 
         const cat = isSelected ? 'selected' : v.isStation ? 'station' : 'naked';
         const s = STYLE[cat];
+        const headWidth = s.radius * 0.95;
+        const headAlpha = 0.85;
+
         ctx.strokeStyle = s.fill;
-        ctx.lineWidth = s.radius * 0.85;
-        ctx.globalAlpha = 0.55;
-        ctx.shadowBlur = s.blur ? s.blur * 0.5 : 0;
+        ctx.shadowBlur = s.blur ? s.blur * 0.35 : 0;
         ctx.shadowColor = s.fill;
 
-        ctx.beginPath();
-        for (let i = 0; i < trail.length; i++) {
-          const [lat, lon] = trail[i];
-          const [x, y] = toCanvasPx(lat, lon);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+        // Pre-project all trail points once.
+        const len = trail.length;
+        const coords = new Array(len);
+        for (let i = 0; i < len; i++) {
+          coords[i] = toCanvasPx(trail[i][0], trail[i][1]);
         }
-        ctx.stroke();
+
+        for (let i = 1; i < len; i++) {
+          const t = i / (len - 1); // 0 at tail, 1 at head
+          const tt = t * t;        // quadratic emphasis
+          const width = headWidth * t;
+          if (width < 0.4) continue;
+          ctx.globalAlpha = headAlpha * tt;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.moveTo(coords[i - 1][0], coords[i - 1][1]);
+          ctx.lineTo(coords[i][0], coords[i][1]);
+          ctx.stroke();
+        }
       }
       ctx.globalAlpha = 1;
       ctx.shadowBlur = 0;

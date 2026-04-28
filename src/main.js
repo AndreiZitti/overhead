@@ -64,7 +64,7 @@ let nextPasses = [];
 
 // Per-satellite trail history — populated each render frame for stations,
 // naked-eye visibles, and the selected sat. Other sats don't trail.
-const TRAIL_MAX = 30; // ~1 second at 30 fps
+const TRAIL_MAX = 60; // ~2 seconds at 30 fps
 const trailHistory = new Map();
 function maintainTrails(visibles) {
   const eligible = new Set();

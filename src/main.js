@@ -232,18 +232,21 @@ if (state.tles.length > 0 && state.observer) {
   setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
 }
 
-// --- 30 fps interpolated render ---
+// --- 60 fps interpolated render ---
+// Interpolate BETWEEN prev and latest worker frames (not extrapolate forward).
+// Trade: ~1 sec display lag — invisible at sat speed/scale and well worth the
+// completely smooth motion (no snap each second when a fresh frame lands).
+
 function lerpLon(prev, latest, t) {
   let d = latest - prev;
   if (d > 180) d -= 360;
   else if (d < -180) d += 360;
-  let r = latest + d * t;
+  let r = prev + d * t;
   r = ((r + 540) % 360) - 180;
   return r;
 }
 
 function interpolatePositions(prevPositions, latestPositions, t) {
-  if (t <= 0) return latestPositions;
   const prevById = new Map();
   for (const p of prevPositions) prevById.set(p.id, p);
   return latestPositions.map((latest) => {
@@ -252,13 +255,12 @@ function interpolatePositions(prevPositions, latestPositions, t) {
     return {
       id: latest.id,
       lon: lerpLon(prev.lon, latest.lon, t),
-      lat: latest.lat + (latest.lat - prev.lat) * t,
+      lat: prev.lat + (latest.lat - prev.lat) * t,
     };
   });
 }
 
 function interpolateVisibles(prevVis, latestVis, t) {
-  if (t <= 0) return latestVis;
   const prevById = new Map();
   for (const v of prevVis) prevById.set(v.id, v);
   return latestVis.map((latest) => {
@@ -267,7 +269,7 @@ function interpolateVisibles(prevVis, latestVis, t) {
     return {
       ...latest,
       lon: lerpLon(prev.lon, latest.lon, t),
-      lat: latest.lat + (latest.lat - prev.lat) * t,
+      lat: prev.lat + (latest.lat - prev.lat) * t,
     };
   });
 }
@@ -276,9 +278,8 @@ function renderFrame() {
   if (latestFrame) {
     let allPos, vis;
     if (prevFrame && latestFrame.timeMs > prevFrame.timeMs) {
-      const dt = (latestFrame.timeMs - prevFrame.timeMs) / 1000;
-      const tRaw = (Date.now() - latestFrame.timeMs) / 1000 / dt;
-      const t = Math.max(0, Math.min(2, tRaw));
+      const dtMs = latestFrame.timeMs - prevFrame.timeMs;
+      const t = Math.max(0, Math.min(1, (Date.now() - prevFrame.timeMs) / dtMs));
       allPos = interpolatePositions(prevFrame.allPositions, latestFrame.allPositions, t);
       vis = interpolateVisibles(prevFrame.visibles, latestFrame.visibles, t);
     } else {

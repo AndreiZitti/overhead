@@ -274,12 +274,20 @@ function interpolateVisibles(prevVis, latestVis, t) {
   });
 }
 
+// Render with a fixed lag = the worker tick interval (1 s). This way the
+// interpolation always has `prev` and `latest` bracketing the render time, so
+// `t` smoothly traverses 0→1 over each tick. Without the lag, t would jump to
+// 1.0 the moment a new frame arrived and freeze there until the next tick —
+// which looked like "just updates position" with no in-between motion.
+const RENDER_LAG_MS = 1000;
+
 function renderFrame() {
   if (latestFrame) {
     let allPos, vis;
     if (prevFrame && latestFrame.timeMs > prevFrame.timeMs) {
+      const renderTime = Date.now() - RENDER_LAG_MS;
       const dtMs = latestFrame.timeMs - prevFrame.timeMs;
-      const t = Math.max(0, Math.min(1, (Date.now() - prevFrame.timeMs) / dtMs));
+      const t = Math.max(0, Math.min(1, (renderTime - prevFrame.timeMs) / dtMs));
       allPos = interpolatePositions(prevFrame.allPositions, latestFrame.allPositions, t);
       vis = interpolateVisibles(prevFrame.visibles, latestFrame.visibles, t);
     } else {

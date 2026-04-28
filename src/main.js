@@ -1,7 +1,9 @@
 import { getLocation } from './geo.js';
 import { loadGroups } from './tle-loader.js';
 import { setupMapOverlay } from './map-overlay.js';
-import { renderList, renderDetail, bindUi } from './ui.js';
+import { fetchAircraft } from './flight-loader.js';
+import { lookupRoute } from './flight-routes.js';
+import { renderList, renderDetail, renderFlightList, renderFlightDetail, bindUi } from './ui.js';
 
 console.log('overhead boot');
 
@@ -16,12 +18,14 @@ function toast(msg) {
   toast._h = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+const MODE_KEY = 'overhead.mode';
 const state = {
   observer: null,
   tles: [],
   groups: { active: true, starlink: true, last30: false },
   sunlitOnly: true,
   lastFetchAt: 0,
+  mode: localStorage.getItem(MODE_KEY) === 'flights' ? 'flights' : 'sats',
 };
 
 // --- Boot: location first (the map needs an initial center) ---
@@ -225,11 +229,105 @@ function updateNextPassChip() {
 }
 setInterval(updateNextPassChip, 1000);
 
+let workerTickHandle = null;
+function startSatTicks() {
+  if (workerTickHandle) return;
+  workerTickHandle = setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
+}
+function stopSatTicks() {
+  if (workerTickHandle) { clearInterval(workerTickHandle); workerTickHandle = null; }
+}
+
 if (state.tles.length > 0 && state.observer) {
   for (const tle of state.tles) if (tle.isStation) stationIdSet.add(tle.id);
   worker.postMessage({ type: 'init', tles: state.tles, observer: state.observer });
   worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: state.sunlitOnly });
-  setInterval(() => worker.postMessage({ type: 'tick', timeMs: Date.now() }), 1000);
+  if (state.mode === 'sats') startSatTicks();
+}
+
+// --- Flights mode -----------------------------------------------------------
+const FLIGHT_POLL_MS = 10_000;
+const AIRCRAFT_TRAIL_MAX = 240; // ~8s at 30fps
+let aircraft = [];        // latest API snapshot
+let aircraftBaseMs = 0;   // wall time of that snapshot (for dead-reckoning)
+let flightPollHandle = null;
+let flightSelectedId = null;
+let flightSelectedRoute = null;
+const aircraftTrails = new Map();
+
+function deadReckonAircraft(now) {
+  if (aircraft.length === 0) return [];
+  const dtSec = (now - aircraftBaseMs) / 1000;
+  const out = new Array(aircraft.length);
+  for (let i = 0; i < aircraft.length; i++) {
+    const a = aircraft[i];
+    if (a.onGround || a.velocityMs == null || a.headingDeg == null) {
+      out[i] = a;
+      continue;
+    }
+    const distM = a.velocityMs * dtSec;
+    const h = a.headingDeg * Math.PI / 180;
+    const latStep = (distM * Math.cos(h)) / 111000;
+    const lonStep = (distM * Math.sin(h)) / (111000 * Math.cos(a.lat * Math.PI / 180));
+    out[i] = { ...a, lat: a.lat + latStep, lon: a.lon + lonStep };
+  }
+  return out;
+}
+
+function maintainAircraftTrails(rendered) {
+  const live = new Set();
+  for (const a of rendered) {
+    if (a.onGround) continue;
+    live.add(a.id);
+    let arr = aircraftTrails.get(a.id);
+    if (!arr) { arr = []; aircraftTrails.set(a.id, arr); }
+    arr.push([a.lat, a.lon]);
+    if (arr.length > AIRCRAFT_TRAIL_MAX) arr.shift();
+  }
+  for (const id of aircraftTrails.keys()) {
+    if (!live.has(id)) aircraftTrails.delete(id);
+  }
+}
+
+async function pollFlights() {
+  if (state.mode !== 'flights') return;
+  const b = mapOverlay.map.getBounds();
+  try {
+    const next = await fetchAircraft({
+      south: b.getSouth(), north: b.getNorth(),
+      west: b.getWest(), east: b.getEast(),
+    });
+    aircraft = next;
+    aircraftBaseMs = Date.now();
+    if (totalCountEl) totalCountEl.textContent = aircraft.length.toLocaleString();
+    if (visCountEl) visCountEl.textContent = '—';
+    if (loadDot) loadDot.className = 'dot live';
+  } catch (e) {
+    console.warn('OpenSky fetch failed', e);
+    if (loadDot) loadDot.className = 'dot err';
+  }
+}
+
+function startFlightMode() {
+  stopSatTicks();
+  trailHistory.clear();
+  aircraftTrails.clear();
+  if (npEl) npEl.hidden = true;
+  pollFlights();
+  flightPollHandle = setInterval(pollFlights, FLIGHT_POLL_MS);
+  // Refetch when the user pans/zooms (debounced by Leaflet's moveend).
+  mapOverlay.map.on('moveend', pollFlights);
+}
+
+function stopFlightMode() {
+  if (flightPollHandle) { clearInterval(flightPollHandle); flightPollHandle = null; }
+  mapOverlay.map.off('moveend', pollFlights);
+  aircraft = [];
+  aircraftTrails.clear();
+  flightSelectedId = null;
+  flightSelectedRoute = null;
+  startSatTicks();
+  updateNextPassChip();
 }
 
 // --- 60 fps interpolated render ---
@@ -282,7 +380,11 @@ function interpolateVisibles(prevVis, latestVis, t) {
 const RENDER_LAG_MS = 1000;
 
 function renderFrame() {
-  if (latestFrame) {
+  if (state.mode === 'flights') {
+    const rendered = deadReckonAircraft(Date.now());
+    maintainAircraftTrails(rendered);
+    mapOverlay.renderFlights(rendered, aircraftTrails, flightSelectedId);
+  } else if (latestFrame) {
     let allPos, vis;
     if (prevFrame && latestFrame.timeMs > prevFrame.timeMs) {
       const renderTime = Date.now() - RENDER_LAG_MS;
@@ -300,6 +402,23 @@ function renderFrame() {
   requestAnimationFrame(renderFrame);
 }
 requestAnimationFrame(renderFrame);
+
+// 1Hz UI tick for the flight list/detail (decoupled from the 30fps render).
+setInterval(() => {
+  if (state.mode !== 'flights') return;
+  const rendered = deadReckonAircraft(Date.now());
+  const sel = flightSelectedId
+    ? rendered.find((a) => a.id === flightSelectedId) || null
+    : null;
+  if (sel) {
+    setSheetSummary(`<strong>${(sel.callsign || sel.id).toUpperCase()}</strong> · ${Math.round((sel.altM || 0) / 30.48) * 100} ft`);
+  } else {
+    setSheetSummary(`In view · <strong>${rendered.length}</strong>`);
+  }
+  renderFlightList(rendered, flightSelectedId);
+  renderFlightDetail(sel, flightSelectedRoute, () => setFlightSelection(null));
+  if (clockEl) clockEl.textContent = fmtClock(new Date());
+}, 1000);
 
 // --- Selection ---
 function setSelection(id) {
@@ -324,13 +443,66 @@ function setSelection(id) {
   }
 }
 
+async function setFlightSelection(id) {
+  flightSelectedId = id;
+  flightSelectedRoute = null;
+  if (id) {
+    const a = aircraft.find((x) => x.id === id);
+    if (a) {
+      mapOverlay.map.flyTo([a.lat, a.lon], Math.max(mapOverlay.map.getZoom(), 7), { duration: 0.6 });
+      expandSheet();
+      // Lazy route lookup (origin/dest) — no auth, on-demand only.
+      if (a.callsign) {
+        const route = await lookupRoute(a.callsign);
+        if (flightSelectedId === id) flightSelectedRoute = route;
+      }
+    }
+  } else {
+    collapseSheet();
+  }
+}
+
 mapOverlay.onClick((id) => {
-  setSelection(id !== null && id !== selectedId ? id : null);
+  if (state.mode === 'flights') {
+    setFlightSelection(id !== null && id !== flightSelectedId ? id : null);
+  } else {
+    setSelection(id !== null && id !== selectedId ? id : null);
+  }
 });
 
 bindUi((id) => {
-  setSelection(selectedId === id ? null : id);
+  if (state.mode === 'flights') {
+    setFlightSelection(flightSelectedId === id ? null : id);
+  } else {
+    setSelection(selectedId === id ? null : id);
+  }
 });
+
+// Mode toggle.
+const modeToggleEl = document.getElementById('modeToggle');
+function applyMode(mode) {
+  state.mode = mode;
+  localStorage.setItem(MODE_KEY, mode);
+  if (modeToggleEl) {
+    for (const btn of modeToggleEl.querySelectorAll('.mode-chip')) {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    }
+  }
+  if (mode === 'flights') {
+    startFlightMode();
+  } else {
+    stopFlightMode();
+  }
+}
+if (modeToggleEl) {
+  modeToggleEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mode-chip[data-mode]');
+    if (!btn) return;
+    if (btn.dataset.mode === state.mode) return;
+    applyMode(btn.dataset.mode);
+  });
+}
+applyMode(state.mode);
 
 // --- Filters drawer controls ---
 const groupChipsEl = document.getElementById('groupChips');

@@ -273,5 +273,112 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     map.setView([obs.lat, obs.lon], map.getZoom());
   }
 
-  return { map, render, onClick, setObserver, setShowBackground };
+  // -----------------------------------------------------------------------
+  // Aircraft / flights mode rendering. Triangles rotated by heading. Same
+  // canvas, same trail mechanism — just a different draw routine.
+  // -----------------------------------------------------------------------
+
+  const FLIGHT_STYLE = {
+    air:       { fill: '#ffd078', stroke: '#1a1200', size: 6,   blur: 4 },
+    ground:    { fill: 'rgba(160, 160, 160, 0.55)', stroke: 'rgba(0,0,0,0.6)', size: 4,   blur: 0 },
+    selected:  { fill: '#7adba0', stroke: '#0a1810', size: 8,   blur: 12 },
+  };
+
+  function drawTriangle(x, y, headingDeg, size, fill, stroke) {
+    const rad = ((headingDeg || 0) - 90) * Math.PI / 180; // 0=N → up
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rad + Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size * 0.65, size * 0.6);
+    ctx.lineTo(0, size * 0.3);
+    ctx.lineTo(-size * 0.65, size * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function renderFlights(aircraft, trailHistory, selectedId) {
+    if (cssW === 0 || cssH === 0) {
+      reset();
+      if (cssW === 0 || cssH === 0) { lastDots = []; return; }
+    }
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    // Trails (same per-craft tapered approach as sats).
+    if (trailHistory && trailHistory.size > 0) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const a of aircraft) {
+        const trail = trailHistory.get(a.id);
+        if (!trail || trail.length < 2) continue;
+        const isSelected = a.id === selectedId;
+        const s = isSelected ? FLIGHT_STYLE.selected
+                : a.onGround ? FLIGHT_STYLE.ground
+                : FLIGHT_STYLE.air;
+        ctx.strokeStyle = s.fill;
+        ctx.shadowBlur = s.blur ? s.blur * 0.4 : 0;
+        ctx.shadowColor = s.fill;
+
+        const TRAIL_DRAW_SEGMENTS = 60;
+        const len = trail.length;
+        const stride = Math.max(1, Math.floor(len / TRAIL_DRAW_SEGMENTS));
+        const sampledIndexes = [];
+        for (let i = 0; i < len; i += stride) sampledIndexes.push(i);
+        if (sampledIndexes[sampledIndexes.length - 1] !== len - 1) sampledIndexes.push(len - 1);
+        const slen = sampledIndexes.length;
+        const coords = new Array(slen);
+        for (let k = 0; k < slen; k++) {
+          const i = sampledIndexes[k];
+          coords[k] = toCanvasPx(trail[i][0], trail[i][1]);
+        }
+        const headWidth = s.size * 0.5;
+        const headAlpha = 0.85;
+        for (let k = 1; k < slen; k++) {
+          const t = k / (slen - 1);
+          const tt = t * t;
+          const width = headWidth * t;
+          if (width < 0.4) continue;
+          ctx.globalAlpha = headAlpha * tt;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.moveTo(coords[k - 1][0], coords[k - 1][1]);
+          ctx.lineTo(coords[k][0], coords[k][1]);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+    }
+
+    // Aircraft icons. Selected drawn last so it sits on top.
+    lastDots = [];
+    const order = aircraft.slice().sort((a, b) => {
+      if (a.id === selectedId) return 1;
+      if (b.id === selectedId) return -1;
+      return 0;
+    });
+    for (const a of order) {
+      const [x, y] = toCanvasPx(a.lat, a.lon);
+      if (!inViewPx(x, y)) continue;
+      const isSelected = a.id === selectedId;
+      const s = isSelected ? FLIGHT_STYLE.selected
+              : a.onGround ? FLIGHT_STYLE.ground
+              : FLIGHT_STYLE.air;
+      if (s.blur) { ctx.shadowBlur = s.blur; ctx.shadowColor = s.fill; }
+      else { ctx.shadowBlur = 0; }
+      drawTriangle(x, y, a.headingDeg, s.size, s.fill, s.stroke);
+      lastDots.push({ id: a.id, x, y, r: s.size });
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  return { map, render, renderFlights, onClick, setObserver, setShowBackground };
 }

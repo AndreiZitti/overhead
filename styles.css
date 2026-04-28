@@ -82,6 +82,39 @@ body {
 }
 .meta #clock { color: var(--ink-1); letter-spacing: 0.04em; }
 
+/* Mode toggle (Sats / Flights) — segmented pill in the header center */
+.mode-toggle {
+  display: flex;
+  gap: 0;
+  background: rgba(15, 19, 38, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.mode-chip {
+  background: transparent;
+  border: none;
+  color: var(--ink-1);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  user-select: none;
+}
+.mode-chip:hover { color: var(--ink-0); }
+.mode-chip.active {
+  background: var(--ink-0);
+  color: var(--bg-0);
+  font-weight: 600;
+}
+
 /* === Map area ======================================================= */
 
 .map-area {

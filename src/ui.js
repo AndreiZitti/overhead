@@ -95,7 +95,8 @@ export function renderDetail(item, onDeselect) {
 }
 
 /**
- * Wire delegated click handlers on #satList.
+ * Wire delegated click handlers on #satList. Row data-id may be a number
+ * (sat NORAD id) or a string (aircraft icao24 hex). Caller decides parsing.
  */
 export function bindUi(onSelect) {
   const list = document.getElementById('satList');
@@ -103,8 +104,90 @@ export function bindUi(onSelect) {
     list.addEventListener('click', (e) => {
       const row = e.target.closest('.sat-row');
       if (!row) return;
-      const id = parseInt(row.dataset.id, 10);
-      if (Number.isFinite(id)) onSelect(id);
+      const raw = row.dataset.id;
+      if (!raw) return;
+      // Try number first (sat); fall back to string (aircraft icao24).
+      const num = parseInt(raw, 10);
+      onSelect(Number.isFinite(num) && String(num) === raw ? num : raw);
     });
+  }
+}
+
+// === Flights ============================================================
+
+const fmtAlt = (m) => m == null ? '—' : `${Math.round(m / 30.48) * 100} ft`;
+const fmtSpd = (mps) => mps == null ? '—' : `${Math.round(mps * 1.94384)} kt`;
+
+function compassFromDeg(deg) {
+  if (deg == null) return '';
+  const d = ((deg % 360) + 360) % 360;
+  return COMPASS[Math.round(d / 22.5) % 16];
+}
+
+export function renderFlightList(aircraft, selectedId) {
+  const list = document.getElementById('satList');
+  const countEl = document.getElementById('listCount');
+  if (countEl) countEl.textContent = aircraft.length.toLocaleString();
+  if (!list) return;
+
+  if (!aircraft.length) {
+    list.innerHTML = `<div class="empty">No aircraft in the visible map area.<br>Pan / zoom out to broaden coverage.</div>`;
+    return;
+  }
+
+  // Sort: airborne first, then highest first (rough proxy for "most interesting").
+  const sorted = aircraft.slice().sort((a, b) => {
+    if (a.onGround !== b.onGround) return a.onGround ? 1 : -1;
+    return (b.altM || 0) - (a.altM || 0);
+  });
+  const slice = sorted.length > MAX_ROWS ? sorted.slice(0, MAX_ROWS) : sorted;
+
+  let html = '';
+  for (const a of slice) {
+    const cls = a.onGround ? 'day' : 'bright';
+    const sel = a.id === selectedId ? ' selected' : '';
+    const name = a.callsign || a.id.toUpperCase();
+    html += `<div class="sat-row ${cls}${sel}" data-id="${a.id}">`
+          + `<div class="name">${name}</div>`
+          + `<div class="el-badge">${fmtAlt(a.altM)}</div>`
+          + `<div class="coords">`
+          +   `<span>${fmtSpd(a.velocityMs)}</span>`
+          +   `<span>hdg ${a.headingDeg == null ? '—' : Math.round(a.headingDeg) + '° ' + compassFromDeg(a.headingDeg)}</span>`
+          +   `<span>${a.country || ''}</span>`
+          + `</div>`
+          + `</div>`;
+  }
+  list.innerHTML = html;
+}
+
+export function renderFlightDetail(aircraft, route, onDeselect) {
+  const detail = document.getElementById('detail');
+  if (!detail) return;
+  if (!aircraft) {
+    detail.hidden = true;
+    return;
+  }
+  detail.hidden = false;
+  const name = aircraft.callsign || aircraft.id.toUpperCase();
+  const routeLine = route
+    ? `<div class="verdict">${route.airline || 'Flight'} · ${route.origin ? route.origin.code : '?'} → ${route.destination ? route.destination.code : '?'}</div>`
+    : `<div class="verdict">${aircraft.country || 'Aircraft'}</div>`;
+  detail.innerHTML =
+      `<div class="detail-head">`
+    +   `<h3>${name}</h3>`
+    +   `<button class="deselect" type="button">Deselect</button>`
+    + `</div>`
+    + routeLine
+    + `<div class="meta-grid">`
+    +   `<div><b>${fmtAlt(aircraft.altM)}</b>altitude</div>`
+    +   `<div><b>${fmtSpd(aircraft.velocityMs)}</b>ground speed</div>`
+    +   `<div><b>${aircraft.headingDeg == null ? '—' : Math.round(aircraft.headingDeg) + '° ' + compassFromDeg(aircraft.headingDeg)}</b>heading</div>`
+    +   `<div><b>${aircraft.onGround ? 'on ground' : 'airborne'}</b>state</div>`
+    +   `<div><b>${aircraft.id.toUpperCase()}</b>icao24</div>`
+    +   `<div><b>${aircraft.country || '—'}</b>registry</div>`
+    + `</div>`;
+  const btn = detail.querySelector('.deselect');
+  if (btn && onDeselect) {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onDeselect(); });
   }
 }

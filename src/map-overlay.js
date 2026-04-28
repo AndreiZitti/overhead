@@ -113,7 +113,7 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     // moving dots leave a fading comet trail. Basemap shows through because
     // 'destination-out' only affects existing canvas pixels.
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
     ctx.fillRect(0, 0, cssW, cssH);
     ctx.globalCompositeOperation = 'source-over';
 

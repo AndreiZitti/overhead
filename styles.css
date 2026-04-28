@@ -97,10 +97,12 @@ body {
 }
 #sat-overlay {
   position: absolute;
-  inset: 0;
   pointer-events: none;
-  z-index: 400;
+  /* Sized + positioned by JS once it's moved into Leaflet's overlay pane. */
 }
+/* While moving into the pane (one paint frame at most), keep it out of view. */
+.map-area > #sat-overlay { visibility: hidden; }
+.leaflet-overlay-pane > #sat-overlay { visibility: visible; }
 
 /* Leaflet dark overrides */
 .leaflet-container { background: #02040a; font-family: 'JetBrains Mono', monospace; }

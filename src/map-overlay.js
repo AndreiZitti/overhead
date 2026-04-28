@@ -1,7 +1,8 @@
 /* global L */
-// Leaflet map + canvas satellite overlay. Renders a CartoDB Dark Matter base
-// map and projects satellite ground positions onto a transparent canvas
-// layered above. Hit-testing dispatches map clicks to the nearest sat.
+// Leaflet map + canvas satellite overlay. Renders CartoDB Dark Matter tiles
+// and projects satellite ground positions onto a transparent canvas placed
+// inside Leaflet's overlayPane — so the canvas inherits Leaflet's pan/zoom
+// transforms and stays aligned with the map at every zoom level.
 
 const TILE_URL =
   'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
@@ -20,19 +21,6 @@ const STYLE = {
   selected:   { fill: '#7adba0', radius: 6,   blur: 16 },
 };
 
-/**
- * Initialize Leaflet map + canvas overlay.
- *
- * @param {string} mapDivId  id of the <div> that will host the Leaflet map
- * @param {HTMLCanvasElement} canvasEl  overlay canvas (sized to map container)
- * @param {{lat:number, lon:number}} observer  initial center
- * @returns {{
- *   map: L.Map,
- *   render: (allPositions, visibles, selectedId) => void,
- *   onClick: (cb: (id|null) => void) => void,
- *   setObserver: (obs) => void
- * }}
- */
 export function setupMapOverlay(mapDivId, canvasEl, observer) {
   const map = L.map(mapDivId, {
     center: [observer.lat, observer.lon],
@@ -40,11 +28,8 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     minZoom: 2,
     maxZoom: 18,
     zoomControl: true,
-    worldCopyJump: true,
-    // Disable animations — our canvas overlay sits outside Leaflet's map pane
-    // and can't follow the CSS transforms applied during zoom/fade. Instant
-    // zooms keep canvas + tiles aligned at every frame.
-    zoomAnimation: false,
+    worldCopyJump: false, // canvas overlay's coords get inconsistent across wraps
+    zoomAnimation: false, // canvas can't follow CSS scale during anim — stay aligned
     fadeAnimation: false,
     markerZoomAnimation: false,
   });
@@ -54,9 +39,9 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     subdomains: 'abcd',
     maxZoom: 19,
     detectRetina: true,
+    noWrap: true, // single world copy keeps overlay coords single-valued
   }).addTo(map);
 
-  // Observer marker via custom divIcon (CSS-animated pulse).
   const observerIcon = L.divIcon({
     className: '',
     html: '<div class="observer-marker"></div>',
@@ -69,35 +54,54 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     keyboard: false,
   }).addTo(map);
 
+  // Move the canvas into Leaflet's overlay pane. It now receives the same
+  // CSS transforms applied to the map's tile layers during pan/zoom.
+  map.getPanes().overlayPane.appendChild(canvasEl);
+  canvasEl.classList.add('leaflet-canvas-layer');
+
   const ctx = canvasEl.getContext('2d');
   let cssW = 0, cssH = 0;
-  let lastDots = []; // {id, x, y, r} in CSS pixels — for hitTest
+  let lastDots = [];
   let clickHandler = null;
+  let showBackground = true;
 
-  function resize() {
-    const rect = canvasEl.getBoundingClientRect();
+  function reset() {
+    const size = map.getSize();
     const dpr = window.devicePixelRatio || 1;
-    cssW = rect.width;
-    cssH = rect.height;
+    cssW = size.x;
+    cssH = size.y;
     canvasEl.width = Math.round(cssW * dpr);
     canvasEl.height = Math.round(cssH * dpr);
+    canvasEl.style.width = cssW + 'px';
+    canvasEl.style.height = cssH + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  resize();
-  window.addEventListener('resize', resize);
 
-  // Project lat/lon → CSS pixel via Leaflet.
-  function toCss(lat, lon) {
-    const p = map.latLngToContainerPoint([lat, lon]);
-    return [p.x, p.y];
+    // Position the canvas top-left at the layer-pane coords corresponding to
+    // the map's current top-left container point. This keeps it aligned even
+    // when overlayPane has a non-zero CSS transform.
+    const tl = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(canvasEl, tl);
   }
+  reset();
+  map.on('viewreset moveend zoomend resize', reset);
 
-  let showBackground = true;
   function setShowBackground(v) { showBackground = !!v; }
+
+  // Convert lat/lon to canvas-local CSS pixels using the layer-point system
+  // (matches the canvas's L.DomUtil position).
+  function toCanvasPx(lat, lon) {
+    const lp = map.latLngToLayerPoint([lat, lon]);
+    const origin = L.DomUtil.getPosition(canvasEl) || L.point(0, 0);
+    return [lp.x - origin.x, lp.y - origin.y];
+  }
+
+  function inViewPx(x, y) {
+    return x >= -2 && x <= cssW + 2 && y >= -2 && y <= cssH + 2;
+  }
 
   function render(allPositions, visibles, selectedId) {
     if (cssW === 0 || cssH === 0) {
-      resize();
+      reset();
       if (cssW === 0 || cssH === 0) {
         lastDots = [];
         return;
@@ -107,38 +111,25 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     // Motion-blur fade: erase ~6% of canvas alpha each frame instead of fully
     // clearing. Stationary dots get redrawn at full alpha so they look crisp;
     // moving dots leave a fading comet trail. Basemap shows through because
-    // 'destination-out' only affects existing canvas pixels, not the underlying
-    // tile layer.
+    // 'destination-out' only affects existing canvas pixels.
     ctx.globalCompositeOperation = 'destination-out';
     ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
     ctx.fillRect(0, 0, cssW, cssH);
     ctx.globalCompositeOperation = 'source-over';
 
-    // Use map.getBounds() for cheap bbox cull before projection.
-    const b = map.getBounds();
-    const south = b.getSouth(), north = b.getNorth();
-    const west = b.getWest(), east = b.getEast();
-    // Lon may wrap when worldCopyJump pans across dateline. Normalize a bit.
-    function inBounds(lat, lon) {
-      if (lat < south || lat > north) return false;
-      // Cheap longitude check — if bounds don't cross dateline.
-      if (west <= east) return lon >= west && lon <= east;
-      return lon >= west || lon <= east;
-    }
-
-    // 1. Background layer: any sat (very faint). Skip entirely when toggled off.
+    // 1. Background dots (very faint, every satellite).
     const bg = STYLE.background;
     if (showBackground) {
       ctx.fillStyle = bg.fill;
       ctx.shadowBlur = 0;
       for (const p of allPositions) {
-        if (!inBounds(p.lat, p.lon)) continue;
-        const [x, y] = toCss(p.lat, p.lon);
+        const [x, y] = toCanvasPx(p.lat, p.lon);
+        if (!inViewPx(x, y)) continue;
         ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
       }
     }
 
-    // 2. Visibles colored by tier.
+    // 2. Visibles bucketed by render category (selection > station > tier).
     const buckets = { shadow: [], daylight: [], telescope: [], binocular: [], naked: [], station: [], selected: [] };
     for (const v of visibles) {
       let cat;
@@ -164,8 +155,8 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       }
       ctx.beginPath();
       for (const v of list) {
-        if (!inBounds(v.lat, v.lon)) continue;
-        const [x, y] = toCss(v.lat, v.lon);
+        const [x, y] = toCanvasPx(v.lat, v.lon);
+        if (!inViewPx(x, y)) continue;
         ctx.moveTo(x + s.radius, y);
         ctx.arc(x, y, s.radius, 0, Math.PI * 2);
         lastDots.push({ id: v.id, x, y, r: s.radius });
@@ -174,13 +165,13 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     }
     ctx.shadowBlur = 0;
 
-    // Add background-only sats to hit-test list (in viewport only).
+    // Background-only sats in viewport are still hit-testable.
     const visibleIdSet = new Set();
     for (const d of lastDots) visibleIdSet.add(d.id);
     for (const p of allPositions) {
       if (visibleIdSet.has(p.id)) continue;
-      if (!inBounds(p.lat, p.lon)) continue;
-      const [x, y] = toCss(p.lat, p.lon);
+      const [x, y] = toCanvasPx(p.lat, p.lon);
+      if (!inViewPx(x, y)) continue;
       lastDots.push({ id: p.id, x, y, r: bg.radius });
     }
   }
@@ -201,10 +192,16 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     return bestId;
   }
 
-  // Map click → hit-test against current dot positions.
+  // Map clicks: hit-test in container-point space, then map back to canvas
+  // coords (cssX/cssY) by subtracting the canvas's current layer-point origin
+  // relative to the container.
   map.on('click', (e) => {
     if (!clickHandler) return;
-    const id = hitTestPx(e.containerPoint.x, e.containerPoint.y);
+    const origin = L.DomUtil.getPosition(canvasEl) || L.point(0, 0);
+    const containerOrigin = map.layerPointToContainerPoint(origin);
+    const cx = e.containerPoint.x - containerOrigin.x;
+    const cy = e.containerPoint.y - containerOrigin.y;
+    const id = hitTestPx(cx, cy);
     clickHandler(id);
   });
 

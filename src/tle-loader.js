@@ -8,19 +8,28 @@ const STATION_NAME_RE = /\b(ISS|TIANHE|CSS|ZARYA)\b/i;
 
 /** Get raw TLE text for a group, using cache when fresh. */
 async function fetchGroupRaw(group, forceFetch) {
-  if (!forceFetch) {
-    const cached = await get(group);
-    if (cached && isFresh(cached.fetchedAt)) return cached.raw;
+  const cached = !forceFetch ? await get(group) : null;
+  if (cached && isFresh(cached.fetchedAt)) return cached.raw;
+
+  // Try the network. If it fails (CelesTrak throttles to a 2-hour update
+  // cadence per IP, returning 403 with a "data has not updated" message),
+  // fall back to ANY cached copy we have, even stale.
+  try {
+    const r = await fetch(CELESTRAK_BASE + encodeURIComponent(group));
+    if (!r.ok) throw new Error('CelesTrak ' + r.status);
+    const text = await r.text();
+    const parsed = parseTLE(text);
+    if (parsed.length === 0) {
+      throw new Error(`CelesTrak ${group}: no TLE records in response`);
+    }
+    await put(group, text);
+    return text;
+  } catch (e) {
+    if (cached) return cached.raw;       // stale fallback
+    const anyCached = await get(group);  // even older fallback if forceFetch was true
+    if (anyCached) return anyCached.raw;
+    throw e;
   }
-  const r = await fetch(CELESTRAK_BASE + encodeURIComponent(group));
-  if (!r.ok) throw new Error('CelesTrak ' + r.status);
-  const text = await r.text();
-  const parsed = parseTLE(text);
-  if (parsed.length === 0) {
-    throw new Error(`CelesTrak ${group}: no TLE records in response`);
-  }
-  await put(group, text);
-  return text;
 }
 
 /** Parse TLE triple-line text into {id, name, line1, line2} records. */

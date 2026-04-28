@@ -3,7 +3,7 @@ import { loadGroups } from './tle-loader.js';
 import { setupMapOverlay } from './map-overlay.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
 
-console.log('orbitarium v4 boot');
+console.log('overhead boot');
 
 const fmt = (n, d = 3) => Number(n).toFixed(d);
 
@@ -355,7 +355,7 @@ if (bgDotsToggleEl) {
   });
 }
 
-const NIGHT_KEY = 'orbitarium.night';
+const NIGHT_KEY = 'overhead.night';
 function applyNight(on) {
   document.body.classList.toggle('night', on);
   if (redModeEl) redModeEl.classList.toggle('active', on);

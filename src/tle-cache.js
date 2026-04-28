@@ -1,7 +1,7 @@
 // IndexedDB TLE cache for CelesTrak responses.
 // Records: {group: string, fetchedAt: number, raw: string}.
 
-const DB_NAME = 'orbitarium';
+const DB_NAME = 'overhead';
 const DB_VERSION = 1;
 const STORE = 'tles';
 

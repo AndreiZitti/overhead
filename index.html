@@ -2,8 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Orbitarium — Live Satellite Sky</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#05060c" />
+    <title>Orbitarium — Live Satellite Tracker</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -16,83 +17,111 @@
             crossorigin=""></script>
   </head>
   <body>
-    <div class="wrap">
+    <div class="app">
 
-      <header>
+      <!-- Compact translucent header overlaying the top of the map -->
+      <header class="app-header">
         <div class="brand">
-          <h1><span class="star">✦</span>Orbitarium</h1>
-          <div class="tag">live satellite tracker — every orbit, in real time</div>
+          <span class="star">✦</span><span class="brand-name">Orbitarium</span>
         </div>
         <div class="meta">
-          <div class="clock" id="clock">--:--:--</div>
-          <div class="loc"><strong id="locName">Locating…</strong></div>
-          <div class="loc" id="coords">--.----° • --.----°</div>
+          <strong id="locName">Locating…</strong>
+          <span id="clock">--:--:--</span>
         </div>
       </header>
 
-      <div class="status">
-        <div class="item"><span class="dot" id="loadDot"></span><span>tle <strong id="tleCount">—</strong></span></div>
-        <div class="item"><span class="dot live"></span><span>tracking <strong id="totalCount">—</strong></span></div>
-        <div class="item"><span>above you <strong id="visCount">—</strong></span></div>
-        <div class="item"><span>sunlit <strong id="sunlitCount">—</strong></span></div>
-        <div class="item"><span>nearest <strong id="nearest">—</strong></span></div>
-      </div>
+      <!-- Map fills the rest of the viewport. -->
+      <main class="map-area">
+        <div id="map"></div>
+        <canvas id="sat-overlay"></canvas>
 
-      <div class="grid">
-
-        <div class="sky-card">
-          <div id="map"></div>
-          <canvas id="sat-overlay"></canvas>
-          <div class="next-pass" id="nextPass" hidden>
-            <div class="np-label">Next overhead</div>
-            <div class="np-name" id="npName">—</div>
-            <div class="np-when" id="npWhen">—</div>
-            <div class="np-dir" id="npDir">—</div>
-          </div>
+        <!-- Top-left: tracking pill + load status -->
+        <div class="status-pill">
+          <span class="dot" id="loadDot"></span>
+          <span class="pill-label">tracking</span>
+          <strong id="totalCount">—</strong>
+          <span class="pill-sep">·</span>
+          <span class="pill-label">above</span>
+          <strong id="visCount">—</strong>
         </div>
 
-        <div class="panel">
-          <h2>Above You <span class="count" id="listCount">0</span></h2>
+        <!-- Bottom-left: next pass chip -->
+        <div class="next-pass" id="nextPass" hidden>
+          <div class="np-label">Next overhead</div>
+          <div class="np-name" id="npName">—</div>
+          <div class="np-when" id="npWhen">—</div>
+          <div class="np-dir" id="npDir">—</div>
+        </div>
+
+        <!-- Bottom-right floating action: open filters drawer -->
+        <button class="fab" id="fabFilters" aria-label="Filters">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <line x1="4" y1="7" x2="20" y2="7"/>
+            <line x1="4" y1="12" x2="20" y2="12"/>
+            <line x1="4" y1="17" x2="20" y2="17"/>
+            <circle cx="9" cy="7" r="2.5" fill="var(--bg-1)"/>
+            <circle cx="15" cy="12" r="2.5" fill="var(--bg-1)"/>
+            <circle cx="9" cy="17" r="2.5" fill="var(--bg-1)"/>
+          </svg>
+        </button>
+      </main>
+
+      <!-- Bottom sheet: collapsed peek by default, tap to expand -->
+      <div class="sheet" id="sheet">
+        <button class="sheet-toggle" id="sheetToggle" aria-label="Toggle sheet">
+          <span class="sheet-handle"></span>
+          <span class="sheet-summary" id="sheetSummary">Above you · 0</span>
+          <span class="sheet-arrow">▾</span>
+        </button>
+        <div class="sheet-body">
+          <div class="detail" id="detail" hidden></div>
           <div class="sat-list" id="satList">
             <div class="empty">Acquiring orbital data…</div>
           </div>
         </div>
-
       </div>
 
-      <div class="detail" id="detail"></div>
-
-      <div class="controls">
-        <div class="ctrl-group" id="groupChips">
-          <button class="chip active" data-group="active">All Active</button>
-          <button class="chip active" data-group="starlink">Starlink</button>
-          <button class="chip" data-group="last30">Recent 30d</button>
+      <!-- Filters drawer: hidden by default, slides in from the right -->
+      <aside class="drawer" id="drawer" aria-hidden="true">
+        <header class="drawer-header">
+          <h3>Filters</h3>
+          <button class="drawer-close" id="drawerClose" aria-label="Close">×</button>
+        </header>
+        <div class="drawer-body">
+          <section class="drawer-sec">
+            <div class="drawer-label">Groups</div>
+            <div class="chips" id="groupChips">
+              <button class="chip active" data-group="active">All Active</button>
+              <button class="chip active" data-group="starlink">Starlink</button>
+              <button class="chip" data-group="last30">Recent 30d</button>
+            </div>
+          </section>
+          <section class="drawer-sec">
+            <div class="drawer-label">Display</div>
+            <div class="chips">
+              <button class="chip active" id="sunlitToggle">Sunlit only</button>
+              <button class="chip" id="redMode">Night vision</button>
+            </div>
+          </section>
+          <section class="drawer-sec">
+            <div class="drawer-label">Location</div>
+            <div class="chips">
+              <button class="chip" id="locBtn">Re-locate me</button>
+            </div>
+          </section>
+          <p class="drawer-foot">
+            Orbital data: <a href="https://celestrak.org" target="_blank">CelesTrak</a><br>
+            Tiles: <a href="https://carto.com/attributions" target="_blank">CARTO</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a><br>
+            All math runs in your browser.
+          </p>
         </div>
-        <button class="chip active" id="sunlitToggle">Sunlit only</button>
-        <button class="chip" id="redMode">Night vision</button>
-        <button class="chip" id="locBtn">Re-locate</button>
-      </div>
+      </aside>
 
-      <div class="legend">
-        <span><i style="background:var(--magenta);box-shadow:0 0 4px var(--magenta)"></i> ISS / station (trailed)</span>
-        <span><i style="background:var(--amber);box-shadow:0 0 4px var(--amber)"></i> naked eye (trailed)</span>
-        <span><i style="background:#c9c5b0"></i> binoculars</span>
-        <span><i style="background:var(--steel);opacity:.55"></i> telescope only</span>
-        <span><i style="background:rgba(106,144,200,.4)"></i> tracked (any sat)</span>
-        <span><i style="background:#7adba0;box-shadow:0 0 4px #7adba0"></i> you</span>
-      </div>
-
-      <footer>
-        Orbital data: <a href="https://celestrak.org" target="_blank">CelesTrak</a> ·
-        SGP4 propagation: satellite.js ·
-        Refreshed every 6h · All math runs in your browser, nothing is sent anywhere
-      </footer>
+      <!-- Drawer scrim — tap to close -->
+      <div class="scrim" id="scrim" hidden></div>
 
     </div>
 
     <div class="toast" id="toast"></div>
-
-    <script src="vendor/satellite.min.js"></script>
-    <script type="module" src="src/main.js"></script>
   </body>
 </html>

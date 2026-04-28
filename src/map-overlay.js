@@ -36,11 +36,11 @@ const STYLE = {
 export function setupMapOverlay(mapDivId, canvasEl, observer) {
   const map = L.map(mapDivId, {
     center: [observer.lat, observer.lon],
-    zoom: 10,
-    minZoom: 3,
+    zoom: 6,        // continent scale by default — far easier to spot trails
+    minZoom: 2,
     maxZoom: 18,
     zoomControl: true,
-    worldCopyJump: true, // smoother dateline pan
+    worldCopyJump: true,
   });
 
   L.tileLayer(TILE_URL, {

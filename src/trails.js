@@ -10,9 +10,9 @@
 let layer = null;
 
 const STYLE = {
-  selected: { color: '#7adba0', weight: 2.5, opacity: 1,    className: 'trail-selected' },
-  station:  { color: '#ff9bd0', weight: 1.5, opacity: 0.7,  className: 'trail-station'  },
-  naked:    { color: '#ffd078', weight: 1.2, opacity: 0.55, className: 'trail-naked'    },
+  selected: { color: '#7adba0', weight: 3,   opacity: 1,    className: 'trail-selected' },
+  station:  { color: '#ff9bd0', weight: 2,   opacity: 0.85, className: 'trail-station'  },
+  naked:    { color: '#ffd078', weight: 1.6, opacity: 0.7,  className: 'trail-naked'    },
 };
 
 export function renderTrails(map, trailsById, stationIdSet, selectedId) {

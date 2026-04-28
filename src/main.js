@@ -4,12 +4,9 @@ import { setupMapOverlay } from './map-overlay.js';
 import { renderTrails } from './trails.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
 
-console.log('orbitarium v3 boot');
+console.log('orbitarium v4 boot');
 
 const fmt = (n, d = 3) => Number(n).toFixed(d);
-const fmtCoords = (obs) =>
-  `${fmt(Math.abs(obs.lat))}°${obs.lat >= 0 ? 'N' : 'S'} • ` +
-  `${fmt(Math.abs(obs.lon))}°${obs.lon >= 0 ? 'E' : 'W'}`;
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -32,31 +29,25 @@ const state = {
 state.observer = await getLocation();
 
 const locNameEl = document.getElementById('locName');
-const coordsEl = document.getElementById('coords');
 if (locNameEl) locNameEl.textContent = state.observer.name;
-if (coordsEl) coordsEl.textContent = fmtCoords(state.observer);
 
 // --- Set up the Leaflet map + canvas overlay ---
 const canvasEl = document.getElementById('sat-overlay');
 const mapOverlay = setupMapOverlay('map', canvasEl, state.observer);
 
-// --- Status bar handles ---
+// --- Status pill handles ---
 const loadDot = document.getElementById('loadDot');
-const tleCountEl = document.getElementById('tleCount');
 const totalCountEl = document.getElementById('totalCount');
 const visCountEl = document.getElementById('visCount');
-const sunlitCountEl = document.getElementById('sunlitCount');
-const nearestEl = document.getElementById('nearest');
 const clockEl = document.getElementById('clock');
 
 if (loadDot) loadDot.className = 'dot warn';
-if (tleCountEl) tleCountEl.textContent = 'loading…';
+if (totalCountEl) totalCountEl.textContent = '…';
 
 try {
   const { tles, fetchedAt } = await loadGroups(['active', 'starlink'], { onWarn: toast });
   state.tles = tles;
   state.lastFetchAt = fetchedAt;
-  if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
   if (loadDot) loadDot.className = 'dot live';
 } catch (e) {
   console.error('TLE load failed', e);
@@ -70,12 +61,51 @@ let latestFrame = null;
 let prevFrame = null;
 let selectedId = null;
 let stationIdSet = new Set();
-let nextPasses = []; // sorted ascending by riseTimeMs
+let nextPasses = [];
 
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function fmtClock(d) {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
+
+// --- Sheet (bottom drawer) ---
+const sheetEl = document.getElementById('sheet');
+const sheetToggleEl = document.getElementById('sheetToggle');
+const sheetSummaryEl = document.getElementById('sheetSummary');
+
+function setSheetSummary(text) {
+  if (sheetSummaryEl) sheetSummaryEl.innerHTML = text;
+}
+
+function expandSheet() { if (sheetEl) sheetEl.classList.add('expanded'); }
+function collapseSheet() { if (sheetEl) sheetEl.classList.remove('expanded'); }
+function toggleSheet() { if (sheetEl) sheetEl.classList.toggle('expanded'); }
+
+if (sheetToggleEl) sheetToggleEl.addEventListener('click', toggleSheet);
+
+// --- Drawer (right-side filters) ---
+const drawerEl = document.getElementById('drawer');
+const drawerCloseEl = document.getElementById('drawerClose');
+const fabEl = document.getElementById('fabFilters');
+const scrimEl = document.getElementById('scrim');
+
+function openDrawer() {
+  if (!drawerEl || !scrimEl) return;
+  drawerEl.classList.add('open');
+  drawerEl.setAttribute('aria-hidden', 'false');
+  scrimEl.hidden = false;
+  requestAnimationFrame(() => scrimEl.classList.add('open'));
+}
+function closeDrawer() {
+  if (!drawerEl || !scrimEl) return;
+  drawerEl.classList.remove('open');
+  drawerEl.setAttribute('aria-hidden', 'true');
+  scrimEl.classList.remove('open');
+  setTimeout(() => { scrimEl.hidden = true; }, 250);
+}
+if (fabEl) fabEl.addEventListener('click', openDrawer);
+if (drawerCloseEl) drawerCloseEl.addEventListener('click', closeDrawer);
+if (scrimEl) scrimEl.addEventListener('click', closeDrawer);
 
 function onWorkerPositions(frame) {
   prevFrame = latestFrame;
@@ -87,19 +117,20 @@ function onWorkerPositions(frame) {
   const c = frame.counts;
   if (totalCountEl) totalCountEl.textContent = (c.total || 0).toLocaleString();
   if (visCountEl) visCountEl.textContent = c.visible.toLocaleString();
-  if (sunlitCountEl) {
-    const sunlit = c.naked + c.binocular + c.telescope + c.daylight;
-    sunlitCountEl.textContent = sunlit.toLocaleString();
-  }
-  if (nearestEl) {
-    nearestEl.textContent = frame.visibles.length > 0
-      ? `${Math.round(frame.visibles[0].range)} km`
-      : '—';
-  }
 
   renderTrails(mapOverlay.map, frame.trails || {}, stationIdSet, selectedId);
+
+  // Update sheet content based on selection state.
+  const sel = selectedId != null
+    ? frame.visibles.find((v) => v.id === selectedId)
+    : null;
+  if (sel) {
+    setSheetSummary(`<strong>${sel.name}</strong> · ${Math.round(sel.elDeg)}° ${azDegToCompass(sel.azDeg)}`);
+  } else {
+    setSheetSummary(`Above you · <strong>${c.visible}</strong>`);
+  }
   renderList(frame.visibles, selectedId);
-  renderDetail(frame.visibles.find((v) => v.id === selectedId) || null);
+  renderDetail(sel || null, () => setSelection(null));
 }
 
 worker.onmessage = (e) => {
@@ -135,7 +166,6 @@ function fmtCountdown(ms) {
 
 function updateNextPassChip() {
   if (!npEl) return;
-  // Drop passes already in the past.
   const now = Date.now();
   while (nextPasses.length > 0 && nextPasses[0].riseTimeMs <= now) {
     nextPasses.shift();
@@ -150,7 +180,6 @@ function updateNextPassChip() {
   if (npWhenEl) npWhenEl.textContent = fmtCountdown(next.riseTimeMs - now);
   if (npDirEl) npDirEl.textContent = `rises ${azDegToCompass(next.riseAzDeg)}`;
 }
-// Refresh countdown every second so it stays smooth between worker passes-pushes.
 setInterval(updateNextPassChip, 1000);
 
 if (state.tles.length > 0 && state.observer) {
@@ -224,9 +253,22 @@ function setSelection(id) {
   selectedId = id;
   worker.postMessage({ type: 'select', id });
   if (latestFrame) {
+    const sel = id != null
+      ? latestFrame.visibles.find((v) => v.id === id)
+      : null;
     renderList(latestFrame.visibles, selectedId);
-    renderDetail(latestFrame.visibles.find((v) => v.id === selectedId) || null);
-    renderTrails(mapOverlay.map, latestFrame.trails || {}, selectedId);
+    renderDetail(sel || null, () => setSelection(null));
+    renderTrails(mapOverlay.map, latestFrame.trails || {}, stationIdSet, selectedId);
+    if (sel) {
+      // Center the map on the selected sat so its trail is in view, and
+      // open the sheet so the detail panel is immediately readable.
+      mapOverlay.map.flyTo([sel.lat, sel.lon], Math.max(mapOverlay.map.getZoom(), 4), {
+        duration: 0.6,
+      });
+      expandSheet();
+    } else {
+      collapseSheet();
+    }
   }
 }
 
@@ -238,7 +280,7 @@ bindUi((id) => {
   setSelection(selectedId === id ? null : id);
 });
 
-// --- Controls ---
+// --- Filters drawer controls ---
 const groupChipsEl = document.getElementById('groupChips');
 const sunlitToggleEl = document.getElementById('sunlitToggle');
 const redModeEl = document.getElementById('redMode');
@@ -251,12 +293,10 @@ async function reloadTles() {
   if (state.groups.last30) enabled.push('last-30-days');
 
   if (loadDot) loadDot.className = 'dot warn';
-  if (tleCountEl) tleCountEl.textContent = 'loading…';
   try {
     const { tles, fetchedAt } = await loadGroups(enabled, { onWarn: toast });
     state.tles = tles;
     state.lastFetchAt = fetchedAt;
-    if (tleCountEl) tleCountEl.textContent = tles.length.toLocaleString();
     if (loadDot) loadDot.className = 'dot live';
     stationIdSet = new Set();
     for (const tle of tles) if (tle.isStation) stationIdSet.add(tle.id);
@@ -308,7 +348,6 @@ if (locBtnEl) {
     toast('Re-acquiring location…');
     state.observer = await getLocation();
     if (locNameEl) locNameEl.textContent = state.observer.name;
-    if (coordsEl) coordsEl.textContent = fmtCoords(state.observer);
     mapOverlay.setObserver(state.observer);
     worker.postMessage({
       type: 'observer',
@@ -316,6 +355,7 @@ if (locBtnEl) {
       lon: state.observer.lon,
       alt: state.observer.alt,
     });
+    closeDrawer();
   });
 }
 
@@ -325,3 +365,6 @@ setInterval(() => {
   if (!state.lastFetchAt) return;
   if (Date.now() - state.lastFetchAt > FRESH_WINDOW_MS) reloadTles();
 }, 60_000);
+
+// Suppress unused-import warnings for fmt (kept for future formatters).
+void fmt;

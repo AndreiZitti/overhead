@@ -17,7 +17,16 @@ export default async function handler(req, res) {
     `&lamax=${encodeURIComponent(lamax)}` +
     `&lomax=${encodeURIComponent(lomax)}`;
   try {
-    const r = await fetch(url);
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 9000);
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Overhead/1.0 (https://overhead-zitti.vercel.app)',
+        'Accept': 'application/json',
+      },
+      signal: ac.signal,
+    });
+    clearTimeout(t);
     if (!r.ok) {
       return res.status(r.status).json({ error: `OpenSky ${r.status}` });
     }
@@ -25,6 +34,9 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=20');
     return res.status(200).json(data);
   } catch (e) {
-    return res.status(502).json({ error: 'upstream fetch failed: ' + (e && e.message) });
+    return res.status(502).json({
+      error: 'upstream fetch failed',
+      detail: (e && (e.cause && e.cause.code || e.message)) || String(e),
+    });
   }
 }

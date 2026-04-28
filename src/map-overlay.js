@@ -284,16 +284,42 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     selected:  { fill: '#7adba0', stroke: '#0a1810', size: 8,   blur: 12 },
   };
 
-  function drawTriangle(x, y, headingDeg, size, fill, stroke) {
-    const rad = ((headingDeg || 0) - 90) * Math.PI / 180; // 0=N → up
+  // Plane silhouette — fuselage, swept wings, horizontal stabilizer.
+  // Drawn pointing up (north), then rotated by heading. Path coords are in
+  // a unit square scaled by `size`.
+  function drawPlane(x, y, headingDeg, size, fill, stroke) {
+    const rad = ((headingDeg || 0) - 0) * Math.PI / 180; // 0° = north (up)
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(rad + Math.PI / 2);
+    ctx.rotate(rad);
+    const s = size;
     ctx.beginPath();
-    ctx.moveTo(0, -size);
-    ctx.lineTo(size * 0.65, size * 0.6);
-    ctx.lineTo(0, size * 0.3);
-    ctx.lineTo(-size * 0.65, size * 0.6);
+    // Nose
+    ctx.moveTo(0, -1.0 * s);
+    // Right side fuselage taper to wing root
+    ctx.lineTo(0.10 * s, -0.30 * s);
+    // Right wingtip (swept back)
+    ctx.lineTo(1.00 * s,  0.10 * s);
+    ctx.lineTo(1.00 * s,  0.20 * s);
+    // Back to fuselage at wing trailing edge
+    ctx.lineTo(0.12 * s,  0.05 * s);
+    // Right side fuselage to tail root
+    ctx.lineTo(0.10 * s,  0.55 * s);
+    // Right tail (horizontal stabilizer)
+    ctx.lineTo(0.42 * s,  0.78 * s);
+    ctx.lineTo(0.42 * s,  0.88 * s);
+    ctx.lineTo(0.10 * s,  0.78 * s);
+    // Tail tip (rear of fuselage)
+    ctx.lineTo(0.0  * s,  0.95 * s);
+    // Mirror left side
+    ctx.lineTo(-0.10 * s,  0.78 * s);
+    ctx.lineTo(-0.42 * s,  0.88 * s);
+    ctx.lineTo(-0.42 * s,  0.78 * s);
+    ctx.lineTo(-0.10 * s,  0.55 * s);
+    ctx.lineTo(-0.12 * s,  0.05 * s);
+    ctx.lineTo(-1.00 * s,  0.20 * s);
+    ctx.lineTo(-1.00 * s,  0.10 * s);
+    ctx.lineTo(-0.10 * s, -0.30 * s);
     ctx.closePath();
     ctx.fillStyle = fill;
     ctx.fill();
@@ -374,7 +400,7 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
               : FLIGHT_STYLE.air;
       if (s.blur) { ctx.shadowBlur = s.blur; ctx.shadowColor = s.fill; }
       else { ctx.shadowBlur = 0; }
-      drawTriangle(x, y, a.headingDeg, s.size, s.fill, s.stroke);
+      drawPlane(x, y, a.headingDeg, s.size, s.fill, s.stroke);
       lastDots.push({ id: a.id, x, y, r: s.size });
     }
     ctx.shadowBlur = 0;

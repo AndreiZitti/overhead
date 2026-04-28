@@ -104,7 +104,15 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       }
     }
 
-    ctx.clearRect(0, 0, cssW, cssH);
+    // Motion-blur fade: erase ~6% of canvas alpha each frame instead of fully
+    // clearing. Stationary dots get redrawn at full alpha so they look crisp;
+    // moving dots leave a fading comet trail. Basemap shows through because
+    // 'destination-out' only affects existing canvas pixels, not the underlying
+    // tile layer.
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+    ctx.fillRect(0, 0, cssW, cssH);
+    ctx.globalCompositeOperation = 'source-over';
 
     // Use map.getBounds() for cheap bbox cull before projection.
     const b = map.getBounds();

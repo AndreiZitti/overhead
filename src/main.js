@@ -1,7 +1,6 @@
 import { getLocation } from './geo.js';
 import { loadGroups } from './tle-loader.js';
 import { setupMapOverlay } from './map-overlay.js';
-import { renderTrails } from './trails.js';
 import { renderList, renderDetail, bindUi } from './ui.js';
 
 console.log('orbitarium v4 boot');
@@ -117,8 +116,6 @@ function onWorkerPositions(frame) {
   const c = frame.counts;
   if (totalCountEl) totalCountEl.textContent = (c.total || 0).toLocaleString();
   if (visCountEl) visCountEl.textContent = c.visible.toLocaleString();
-
-  renderTrails(mapOverlay.map, frame.trails || {}, stationIdSet, selectedId);
 
   // Update sheet content based on selection state.
   const sel = selectedId != null
@@ -258,7 +255,6 @@ function setSelection(id) {
       : null;
     renderList(latestFrame.visibles, selectedId);
     renderDetail(sel || null, () => setSelection(null));
-    renderTrails(mapOverlay.map, latestFrame.trails || {}, stationIdSet, selectedId);
     if (sel) {
       // Center the map on the selected sat so its trail is in view, and
       // open the sheet so the detail panel is immediately readable.

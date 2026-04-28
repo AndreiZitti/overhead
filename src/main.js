@@ -329,6 +329,15 @@ if (sunlitToggleEl) {
   });
 }
 
+const bgDotsToggleEl = document.getElementById('bgDotsToggle');
+if (bgDotsToggleEl) {
+  bgDotsToggleEl.addEventListener('click', () => {
+    const on = !bgDotsToggleEl.classList.contains('active');
+    bgDotsToggleEl.classList.toggle('active', on);
+    mapOverlay.setShowBackground(on);
+  });
+}
+
 const NIGHT_KEY = 'orbitarium.night';
 function applyNight(on) {
   document.body.classList.toggle('night', on);

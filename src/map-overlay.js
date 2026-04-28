@@ -36,11 +36,17 @@ const STYLE = {
 export function setupMapOverlay(mapDivId, canvasEl, observer) {
   const map = L.map(mapDivId, {
     center: [observer.lat, observer.lon],
-    zoom: 6,        // continent scale by default — far easier to spot trails
+    zoom: 6,
     minZoom: 2,
     maxZoom: 18,
     zoomControl: true,
     worldCopyJump: true,
+    // Disable animations — our canvas overlay sits outside Leaflet's map pane
+    // and can't follow the CSS transforms applied during zoom/fade. Instant
+    // zooms keep canvas + tiles aligned at every frame.
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
   });
 
   L.tileLayer(TILE_URL, {
@@ -86,6 +92,9 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     return [p.x, p.y];
   }
 
+  let showBackground = true;
+  function setShowBackground(v) { showBackground = !!v; }
+
   function render(allPositions, visibles, selectedId) {
     if (cssW === 0 || cssH === 0) {
       resize();
@@ -109,14 +118,16 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
       return lon >= west || lon <= east;
     }
 
-    // 1. Background layer: any sat (very faint).
+    // 1. Background layer: any sat (very faint). Skip entirely when toggled off.
     const bg = STYLE.background;
-    ctx.fillStyle = bg.fill;
-    ctx.shadowBlur = 0;
-    for (const p of allPositions) {
-      if (!inBounds(p.lat, p.lon)) continue;
-      const [x, y] = toCss(p.lat, p.lon);
-      ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
+    if (showBackground) {
+      ctx.fillStyle = bg.fill;
+      ctx.shadowBlur = 0;
+      for (const p of allPositions) {
+        if (!inBounds(p.lat, p.lon)) continue;
+        const [x, y] = toCss(p.lat, p.lon);
+        ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
+      }
     }
 
     // 2. Visibles colored by tier.
@@ -196,5 +207,5 @@ export function setupMapOverlay(mapDivId, canvasEl, observer) {
     map.setView([obs.lat, obs.lon], map.getZoom());
   }
 
-  return { map, render, onClick, setObserver };
+  return { map, render, onClick, setObserver, setShowBackground };
 }

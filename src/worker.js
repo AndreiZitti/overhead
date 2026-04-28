@@ -83,7 +83,7 @@ function eciDirToAzEl(dir, obsGd, gmst) {
   return { az: look.azimuth, el: look.elevation, range: look.rangeSat };
 }
 
-const TIER_RANK = { naked: 0, binocular: 1, telescope: 2, daylight: 3, shadow: 4 };
+const TIER_RANK = { naked: 0, binocular: 1, telescope: 2, daylight: 3, shadow: 4, below: 5 };
 const RAD2DEG = 180 / Math.PI;
 
 // --- Init / observer / config ---
@@ -276,17 +276,15 @@ function handleTick({ timeMs }) {
     // Always: ground point for the map.
     allPositions.push({ id: sat.id, lon, lat });
 
-    // Visibility: only if above the observer's horizon.
+    // Visibility classification.
     const ecf = self.satellite.eciToEcf(pv.position, gmst);
     const look = self.satellite.ecfToLookAngles(observerGd, ecf);
     const elDeg = look.elevation * RAD2DEG;
-    if (elDeg < config.minElev) continue;
+    const isBelow = elDeg < config.minElev;
 
-    const sunlit = isSunlit(pv.position, sunDir);
-    const mag = estimateMag(sat, look.rangeSat);
-    const tier = tierOf(sat, sunlit, observerDark, mag);
-    tierCounts[tier]++;
-    if (config.sunlitOnly && tier === 'shadow') continue;
+    // Stations are always included (so the user can find ISS / CSS in the
+    // list and click to fly the map there). Other sats only when above-horizon.
+    if (isBelow && !sat.isStation) continue;
 
     const eciSpeed = Math.sqrt(
       pv.velocity.x * pv.velocity.x +
@@ -294,13 +292,37 @@ function handleTick({ timeMs }) {
       pv.velocity.z * pv.velocity.z
     );
 
+    if (isBelow) {
+      // Below-horizon station — short entry, no visibility tier.
+      visibles.push({
+        id: sat.id,
+        name: sat.name,
+        isStation: true,
+        lon, lat, altKm,
+        az: look.azimuth,
+        el: look.elevation,
+        elDeg,
+        azDeg: look.azimuth * RAD2DEG,
+        range: look.rangeSat,
+        sunlit: false,
+        mag: 99,
+        tier: 'below',
+        eciSpeed,
+      });
+      continue;
+    }
+
+    const sunlit = isSunlit(pv.position, sunDir);
+    const mag = estimateMag(sat, look.rangeSat);
+    const tier = tierOf(sat, sunlit, observerDark, mag);
+    tierCounts[tier]++;
+    if (config.sunlitOnly && tier === 'shadow') continue;
+
     visibles.push({
       id: sat.id,
       name: sat.name,
       isStation: sat.isStation,
-      lon,
-      lat,
-      altKm,
+      lon, lat, altKm,
       az: look.azimuth,
       el: look.elevation,
       elDeg,
@@ -333,6 +355,10 @@ function handleTick({ timeMs }) {
     refreshPasses(timeMs);
   }
 
+  // Visible-above-horizon count excludes the always-shown below-horizon stations.
+  let aboveCount = 0;
+  for (const v of visibles) if (v.tier !== 'below') aboveCount++;
+
   self.postMessage({
     type: 'positions',
     timeMs,
@@ -340,7 +366,7 @@ function handleTick({ timeMs }) {
     visibles,
     counts: {
       total: satrecs.length,
-      visible: visibles.length,
+      visible: aboveCount,
       ...tierCounts,
     },
     trails: trailCache,

@@ -355,7 +355,10 @@ body {
 .sat-row.faint    .name::before { background: var(--steel); opacity: 0.7; }
 .sat-row.day      .name::before { background: #7a7567; }
 .sat-row.shadow   .name::before { background: #3a4565; opacity: 0.5; }
+.sat-row.below    .name::before { background: var(--ink-2); opacity: 0.5; }
 .sat-row.station  .name::before { background: var(--magenta); box-shadow: 0 0 6px var(--magenta); }
+.sat-row.below .name { color: var(--ink-1); }
+.sat-row.below .el-badge { color: var(--ink-2); font-style: italic; font-size: 10px; }
 .sat-row .el-badge {
   font-size: 12px;
   color: var(--ink-0);

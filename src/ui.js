@@ -15,6 +15,7 @@ const TIER_CLASS = {
   telescope: 'faint',
   daylight: 'day',
   shadow: 'shadow',
+  below: 'below',
 };
 
 const TIER_LABEL = {
@@ -23,6 +24,7 @@ const TIER_LABEL = {
   telescope: 'Telescope only',
   daylight: 'Sunlit but bright sky',
   shadow: 'In Earth shadow',
+  below: 'Below horizon (waiting for next pass)',
 };
 
 const MAX_ROWS = 60;
@@ -45,11 +47,13 @@ export function renderList(items, selectedId) {
     const v = slice[i];
     const cls = v.isStation ? 'station' : (TIER_CLASS[v.tier] || 'shadow');
     const sel = v.id === selectedId ? ' selected' : '';
+    const elText = v.tier === 'below' ? 'below' : `${fmt(v.elDeg, 0)}°`;
+    const magText = v.tier === 'below' ? '—' : `mag ${fmt(v.mag, 1)}`;
     html += `<div class="sat-row ${cls}${sel}" data-id="${v.id}">`
           + `<div class="name">${v.name}</div>`
-          + `<div class="el-badge">${fmt(v.elDeg, 0)}°</div>`
+          + `<div class="el-badge">${elText}</div>`
           + `<div class="coords">`
-          +   `<span>mag ${fmt(v.mag, 1)}</span>`
+          +   `<span>${magText}</span>`
           +   `<span>az ${fmt(v.azDeg, 0)}° ${compassFromAz(v.az)}</span>`
           +   `<span>${fmt(v.range, 0)} km</span>`
           + `</div>`

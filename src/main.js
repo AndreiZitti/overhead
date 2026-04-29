@@ -34,15 +34,25 @@ state.observer = await getLocation();
 const locNameEl = document.getElementById('locName');
 if (locNameEl) locNameEl.textContent = state.observer.name;
 
-// --- Set up the Leaflet map + canvas overlay ---
-const canvasEl = document.getElementById('sat-overlay');
-const mapOverlay = setupMapOverlay('map', canvasEl, state.observer);
+// --- Set up the Leaflet map + canvas overlays (fg = visibles, bg = all sats) ---
+const fgCanvasEl = document.getElementById('sat-overlay');
+const bgCanvasEl = document.getElementById('bg-overlay');
+const mapOverlay = setupMapOverlay('map', fgCanvasEl, bgCanvasEl, state.observer);
 
 // --- Status pill handles ---
 const loadDot = document.getElementById('loadDot');
 const totalCountEl = document.getElementById('totalCount');
 const visCountEl = document.getElementById('visCount');
 const clockEl = document.getElementById('clock');
+
+const loadingEl = document.getElementById('mapLoading');
+const loadingTextEl = document.getElementById('loadingText');
+function showLoading(text) {
+  if (!loadingEl) return;
+  if (loadingTextEl) loadingTextEl.textContent = text || 'Loading…';
+  loadingEl.hidden = false;
+}
+function hideLoading() { if (loadingEl) loadingEl.hidden = true; }
 
 if (loadDot) loadDot.className = 'dot warn';
 if (totalCountEl) totalCountEl.textContent = '…';
@@ -160,6 +170,17 @@ function onWorkerPositions(frame) {
   prevFrame = latestFrame;
   latestFrame = frame;
 
+  // Repaint the background canvas once per worker tick. ~17K dots barely
+  // move at sat scale within 1 s, so per-frame redraws are wasted work.
+  if (state.mode === 'sats') {
+    mapOverlay.renderBackground(frame.allPositions);
+  }
+
+  if (firstPositionsPending) {
+    firstPositionsPending = false;
+    hideLoading();
+  }
+
   const now = new Date(frame.timeMs);
   if (clockEl) clockEl.textContent = fmtClock(now);
 
@@ -238,8 +259,15 @@ function stopSatTicks() {
   if (workerTickHandle) { clearInterval(workerTickHandle); workerTickHandle = null; }
 }
 
+let firstPositionsPending = false;
+
 if (state.tles.length > 0 && state.observer) {
   for (const tle of state.tles) if (tle.isStation) stationIdSet.add(tle.id);
+  // Spinner stays up until the worker returns its first positions frame —
+  // worker init parses ~17K satrecs and the initial structured-clone send is
+  // the part the user perceives as "first-load freeze".
+  firstPositionsPending = state.mode === 'sats';
+  if (firstPositionsPending) showLoading('Computing orbits');
   worker.postMessage({ type: 'init', tles: state.tles, observer: state.observer });
   worker.postMessage({ type: 'config', minElev: 5, sunlitOnly: state.sunlitOnly });
   if (state.mode === 'sats') startSatTicks();
@@ -299,15 +327,6 @@ function maintainAircraftTrails(rendered) {
   }
 }
 
-const loadingEl = document.getElementById('mapLoading');
-const loadingTextEl = document.getElementById('loadingText');
-function showLoading(text) {
-  if (!loadingEl) return;
-  if (loadingTextEl) loadingTextEl.textContent = text || 'Loading…';
-  loadingEl.hidden = false;
-}
-function hideLoading() { if (loadingEl) loadingEl.hidden = true; }
-
 async function pollFlights() {
   if (state.mode !== 'flights') return;
   const b = mapOverlay.map.getBounds();
@@ -362,6 +381,7 @@ function startFlightMode() {
   stopSatTicks();
   trailHistory.clear();
   aircraftTrails.clear();
+  mapOverlay.clearBackground(); // sat dots shouldn't bleed into flight view
   if (npEl) npEl.hidden = true;
   pollFlights();
   flightPollHandle = setInterval(pollFlights, FLIGHT_POLL_MS);
@@ -437,19 +457,19 @@ function renderFrame() {
     maintainAircraftTrails(rendered);
     mapOverlay.renderFlights(rendered, aircraftTrails, flightSelectedId);
   } else if (latestFrame) {
-    let allPos, vis;
+    // Foreground only — visibles + trails + selected. Background dots are
+    // painted on a separate canvas once per worker tick (see onWorkerPositions).
+    let vis;
     if (prevFrame && latestFrame.timeMs > prevFrame.timeMs) {
       const renderTime = Date.now() - RENDER_LAG_MS;
       const dtMs = latestFrame.timeMs - prevFrame.timeMs;
       const t = Math.max(0, Math.min(1, (renderTime - prevFrame.timeMs) / dtMs));
-      allPos = interpolatePositions(prevFrame.allPositions, latestFrame.allPositions, t);
       vis = interpolateVisibles(prevFrame.visibles, latestFrame.visibles, t);
     } else {
-      allPos = latestFrame.allPositions;
       vis = latestFrame.visibles;
     }
     maintainTrails(vis);
-    mapOverlay.render(allPos, vis, trailHistory, selectedId);
+    mapOverlay.render(vis, trailHistory, selectedId);
   }
   requestAnimationFrame(renderFrame);
 }

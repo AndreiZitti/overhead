@@ -169,8 +169,10 @@ export function renderFlightDetail(aircraft, route, onDeselect) {
   }
   detail.hidden = false;
   const name = aircraft.callsign || aircraft.id.toUpperCase();
+  const fmtAirport = (a) =>
+    !a ? '?' : a.country ? `${a.code} (${a.country})` : a.code;
   const routeLine = route
-    ? `<div class="verdict">${route.airline || 'Flight'} · ${route.origin ? route.origin.code : '?'} → ${route.destination ? route.destination.code : '?'}</div>`
+    ? `<div class="verdict">${route.airline || 'Flight'} · ${fmtAirport(route.origin)} → ${fmtAirport(route.destination)}</div>`
     : `<div class="verdict">${aircraft.country || 'Aircraft'}</div>`;
   detail.innerHTML =
       `<div class="detail-head">`

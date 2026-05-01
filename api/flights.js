@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     // doesn't have to know about the upstream change.
     const states = (data.ac || []).map((a) => [
       a.hex || '',                                  // 0  icao24
-      a.flight || a.r || '',                        // 1  callsign
+      a.flight || '',                               // 1  callsign (NOT a.r — registration ≠ callsign)
       a.country || '',                              // 2  origin country (often blank)
       a.seen_pos != null ? Math.floor(Date.now() / 1000 - a.seen_pos) : null, // 3
       Math.floor(Date.now() / 1000),                // 4  last_contact

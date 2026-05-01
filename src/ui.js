@@ -171,9 +171,14 @@ export function renderFlightDetail(aircraft, route, onDeselect) {
   const name = aircraft.callsign || aircraft.id.toUpperCase();
   const fmtAirport = (a) =>
     !a ? '?' : a.country ? `${a.code} (${a.country})` : a.code;
-  const routeLine = route
-    ? `<div class="verdict">${route.airline || 'Flight'} · ${fmtAirport(route.origin)} → ${fmtAirport(route.destination)}</div>`
-    : `<div class="verdict">${aircraft.country || 'Aircraft'}</div>`;
+  let routeLine;
+  if (route && (route.origin || route.destination)) {
+    routeLine = `<div class="verdict">${route.airline || 'Flight'} · ${fmtAirport(route.origin)} → ${fmtAirport(route.destination)}</div>`;
+  } else if (route && route.airline) {
+    routeLine = `<div class="verdict">${route.airline}</div>`;
+  } else {
+    routeLine = `<div class="verdict">${aircraft.country || 'Aircraft'}</div>`;
+  }
   detail.innerHTML =
       `<div class="detail-head">`
     +   `<h3>${name}</h3>`
